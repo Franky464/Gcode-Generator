@@ -15,6 +15,15 @@ language_display_names = {
     "es": "Español"
 }
 
+mode_acronyms = {
+    "1": "SRC",
+    "2": "CDR",
+    "3": "MTX",
+    "4": "RDS",
+    "5": "OBL",
+    "6": "THR"
+}
+
 # Charger les traductions
 def load_translations():
     translations_path = os.path.join(os.path.dirname(__file__), "translations.json")
@@ -377,6 +386,16 @@ def on_mode_select(event):
     mode_id = next((id for id, name in mode_options[lang] if name == selected_name), "1")
     mode_var.set(mode_id)
     print(f"Mode sélectionné dans on_mode_select : {mode_id}")
+
+    # Mise à jour du project_name avec l'acronyme
+    current_project_name = project_name_var.get()
+    acronym = mode_acronyms.get(mode_id, "TST")  # Par défaut "TST" si mode_id non trouvé
+    if len(current_project_name) >= 3:
+        new_project_name = acronym + current_project_name[3:]
+    else:
+        new_project_name = acronym + current_project_name
+    project_name_var.set(new_project_name)
+
     update_fields()
 
 def on_language_select(event):
@@ -444,7 +463,7 @@ def save_and_generate():
             subprocess.run(["python", main_script_path], check=True, cwd=os.path.dirname(__file__))
             # Chercher le fichier .nc le plus récent commençant par project_name
             project_name = project_name_var.get()
-            gcode_pattern = os.path.join(os.path.dirname(__file__), f"{project_name}_*.nc")
+            gcode_pattern = os.path.join(os.path.dirname(__file__), f"NC\{mode}_{project_name}_*.nc")
             gcode_files = glob.glob(gcode_pattern)
             if gcode_files:
                 # Trouver le fichier le plus récent

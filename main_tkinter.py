@@ -24,10 +24,11 @@ def save_config(config):
 def generate_header(project_name, machine_name, stock_x, stock_y, stock_z):
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     header = f"""; NC file from Picture_CNC
-; Project: {project_name}
-; Date: {current_time}
-; Machine: {machine_name}
-; Stock XYZ: [{stock_x:.3f}, {stock_y:.3f}, {stock_z:.3f}]
+; {project_name}
+; {current_time}
+; {machine_name}
+; [{stock_x:.3f}, {stock_y:.3f}, {stock_z:.3f}]
+
 G21
 G90
 M3 S1000
@@ -180,35 +181,39 @@ def contour_drilling(config):
     initial_x = start_x
     initial_y = start_y
 
-    gcode = f"\n; Contour drilling operation ({path_type}, {'trou borgne' if is_blind_hole else 'trou traversant'})\n"
+    gcode = f"\n; Contour drilling operation\n"
+    gcode += f"; ({path_type}, {'trou borgne' if is_blind_hole else 'trou traversant'})"
+    gcode += f"\n; D={hole_diameter:.1f} H={total_depth:.1f} Bit={tool_diameter}"
+    gcode += f"\n; P={total_depth/depth_per_pass} x {depth_per_pass}mm"
+    gcode += f"\n; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
     gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
     gcode += f"G00 Z{clearance_height:.3f} f{feed_rate}\n"
     gcode += f"G00 X{initial_x:.3f} Y{initial_y:.3f}\n"
 
-    max_radius = hole_diameter / 2
-    min_radius = tool_diameter / 2
-    step_over = tool_diameter * (1 - overlap_percent / 100) if is_blind_hole else max_radius
-    num_circles = int((max_radius - min_radius) / step_over) + 1 if is_blind_hole else 1
+    hole_radius = hole_diameter / 2
+    tool_radius = tool_diameter / 2
+    step_over = tool_diameter * (1 - overlap_percent / 100) if is_blind_hole else hole_radius
+    num_circles = int((hole_radius - tool_radius) / step_over) + 1 if is_blind_hole else 1
 
     current_z = start_z
     for i in range(num_passes_z):
         current_z -= min(depth_per_pass, total_depth - i * depth_per_pass)
         gcode += f"; Pass {i+1} at Z={current_z:.3f}\n"
-        gcode += f"G01 Z{current_z:.3f}\n"
         for j in range(num_circles):
-            circle_radius = min_radius + j * step_over if is_blind_hole else max_radius
-            if circle_radius > max_radius:
-                circle_radius = max_radius
-            tangent_x = start_x + circle_radius
+            circle_radius = tool_radius + j * step_over if is_blind_hole else hole_radius - tool_radius
+            if circle_radius > hole_radius - tool_radius:
+                circle_radius = hole_radius - tool_radius
+            tangent_x = start_x + circle_radius 
             gcode += f"G00 X{tangent_x:.3f} Y{initial_y:.3f}\n"
-            if j == 0:
-                gcode += f"G01 Z{current_z:.3f}\n"
+            gcode += f"G01 Z{current_z:.3f}\n"
             if path_type == "Opposition":
                 gcode += f"G02 X{tangent_x:.3f} Y{initial_y:.3f} I{-circle_radius:.3f} J0.000\n"
             else:
                 gcode += f"G03 X{tangent_x:.3f} Y{initial_y:.3f} I{-circle_radius:.3f} J0.000\n"
-        gcode += f"G00 Z{clearance_height:.3f}\n"
 
+    gcode += f"G00 Z{clearance_height:.3f}\n"
+    gcode += f"G00 X{initial_x:.3f} Y{initial_y:.3f}\n"
+    
     return gcode, start_x, start_y, start_z, current_z, start_x + hole_diameter, start_y + hole_diameter, clearance_height
 
 def threading(config):
@@ -254,17 +259,20 @@ def threading(config):
         base_x = hole_radius - depth_per_pass - tool_radius - total_depth # Formule du commentaire pour première passe
         i_value = -base_x  # Comme dans l'exemple
 
-        gcode = f"\n; Threading operation (Ecrou, {defaults.get('path_type', 'Gauche')})\n"
+        gcode = f"\n; Threading operation"
+        gcode += f"\n;(Ecrou, {defaults.get('path_type', 'Left')})"
+        gcode += f"\n; D={hole_diameter:.1f} H={thread_number*thread_pitch:.1f} P={thread_pitch:.1f}"
+        gcode += f"\n; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
         gcode += f"G00 Z{clearance_height} S{spindle_speed:.1f}\n"
         gcode += f"G00 X{start_x:.3f} Y{start_y:.3f} Z{start_z:.3f} f{feed_rate} S{spindle_speed:.1f}\n"
 
         for pass_num in range(1, num_radial_passes + 1):
-            current_x = base_x + (pass_num - 1) * depth_per_pass
+            current_x = base_x + (pass_num + 1) * depth_per_pass
             gcode += f"G01 X{start_x + current_x:.3f} Y{start_y:.3f}\n"  # Assumer centre à (start_x, start_y)
 
             for turn in range(1, thread_number + 1):
                 next_z = start_z - thread_pitch * turn  # Z absolu depuis start_z
-                gcode += f"{path_type} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x:.3f} J0.000 Z{next_z:.3f}\n"
+                gcode += f"{path_type} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000 Z{next_z:.3f}\n"
 
             gcode += f"G00 X{start_x:.3f} Y{start_y:.3f}\n"  # Retour au centre
             if pass_num < num_radial_passes:
@@ -274,17 +282,20 @@ def threading(config):
         base_x = hole_radius- depth_per_pass + tool_radius  # À ajuster pour Vis si nécessaire
         i_value = -base_x # À ajuster pour Vis si nécessaire
 
-        gcode = f"\n; Threading operation (Vis, {defaults.get('path_type', 'Gauche')})\n"
+        gcode = f"\n; Threading operation"
+        gcode += f"\n;(Vis, {defaults.get('path_type', 'Left')})"
+        gcode += f"\n; D={hole_diameter:.1f} H={thread_number*thread_pitch:.1f} P={thread_pitch:.1f}"
+        gcode += f"\n; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
         gcode += f"G00 Z{clearance_height} S{spindle_speed:.1f}\n"
         gcode += f"G00 X{start_x + hole_radius + tool_radius + total_depth:.3f} Y{start_y:.3f} Z{start_z:.3f} f{feed_rate}\n"
 
         for pass_num in range(1, num_radial_passes + 1):
-            current_x = base_x - (pass_num - 1) * depth_per_pass + total_depth
+            current_x = base_x - (pass_num) * depth_per_pass + depth_per_pass
             gcode += f"G01 X{start_x + current_x:.3f} Y{start_y:.3f}\n"  # Assumer centre à (start_x, start_y)
 
             for turn in range(1, thread_number + 1):
                 next_z = start_z - thread_pitch * turn  # Z absolu depuis start_z
-                gcode += f"{path_type} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x:.3f} J0.000 Z{next_z:.3f}\n"
+                gcode += f"{path_type} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000 Z{next_z:.3f}\n"
 
             gcode += f"G00 X{start_x + hole_radius + tool_radius + total_depth:.3f} Y{start_y:.3f}\n"  # Retour au centre
             if pass_num < num_radial_passes:
@@ -305,9 +316,9 @@ def matrix_drilling(config):
     start_x = defaults.get("start_x", 0.0)
     start_y = defaults.get("start_y", 0.0)
     start_z = defaults.get("start_z", 0.0)
-    num_holes_x = int(float(defaults.get("num_holes_x", 1)))  # Forcer conversion en int
+    num_cols = int(float(defaults.get("num_cols", 1)))  # Forcer conversion en int
     step_x = float(defaults.get("step_x", 10.0))
-    num_holes_y = int(float(defaults.get("num_holes_y", 1)))  # Forcer conversion en int
+    num_rows = int(float(defaults.get("num_rows", 1)))  # Forcer conversion en int
     step_y = float(defaults.get("step_y", 10.0))
     clearance_height = float(defaults.get("clearance_height", 5.0))
     deburr_height = float(defaults.get("deburr_height", 2.0))
@@ -323,25 +334,29 @@ def matrix_drilling(config):
         raise ValueError("La hauteur de dégagement et de débourrage doivent être positives.")
     if depth_per_pass > total_depth:
         raise ValueError("La profondeur par passe ne peut pas dépasser la profondeur totale.")
-    if num_holes_x < 1 or num_holes_y < 1:
+    if num_cols < 1 or num_rows < 1:
         raise ValueError("Le nombre de perçages doit être au moins 1.")
     if step_x < 0 or step_y < 0:
         raise ValueError("Les pas sur X et Y doivent être positifs ou nuls.")
+    #print(f"Debug: num_cols={num_cols}, num_rows={num_rows}, step_x={step_x}, step_y={step_y}")  # Ligne de débogage
 
     num_passes_z = int(total_depth / depth_per_pass) + (1 if total_depth % depth_per_pass != 0 else 0)
-    end_x = start_x + (num_holes_x - 1) * step_x
-    end_y = start_y + (num_holes_y - 1) * step_y
+    end_x = start_x + (num_cols - 1) * step_x
+    end_y = start_y + (num_rows - 1) * step_y
 
-    gcode = f"\n; Matrix drilling operation ({num_holes_x}x{num_holes_y} holes, RAST strategy)\n"
+    gcode = f"\n; Matrix drilling operation ({num_cols}x{num_rows} holes, RAST strategy)"
+    gcode += f"\n; X,Y,Z = {start_x}, {start_y}, {start_z}"
+    gcode += f"\n; Matrix X x Y = {num_cols} x {num_rows}, H = {total_depth}\n\n"
     gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
     gcode += f"G00 Z{clearance_height:.3f} f{feed_rate}\n"
     gcode += f"G00 X{start_x:.3f} Y{start_y:.3f}\n"
 
-    for j in range(num_holes_y):
+    for j in range(num_rows):
         current_y = start_y + j * step_y
-        x_positions = [start_x + i * step_x for i in range(num_holes_x)]
-        if j % 2 == 1:
+        x_positions = [start_x + i * step_x for i in range(num_cols)]
+        if j % 2 == 1:  # Inverse l'ordre pour les lignes impaires
             x_positions = x_positions[::-1]
+        #print(f"Debug: Row {j+1}, Y={current_y}, X positions: {x_positions}")  # Ligne de débogage
         for current_x in x_positions:
             gcode += f"; Hole at X={current_x:.3f}, Y={current_y:.3f}\n"
             gcode += f"G00 X{current_x:.3f} Y{current_y:.3f}\n"
@@ -569,9 +584,9 @@ def main():
         gcode = generate_header(project_name, machine_name, stock_x, stock_y, stock_z)
         for op, _, _, _, _, _, _, _ in operations:
             gcode += op
-        gcode += "G90\nM9\nM2\n"
+        gcode += "G90\nM5\nM30\n"
 
-        filename = f"{project_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.nc"
+        filename = f"NC\{operation}_{project_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.nc"
         if not os.access(os.getcwd(), os.W_OK):
             raise PermissionError("Pas de permissions d'écriture dans le répertoire courant.")
         with open(filename, "w") as file:
