@@ -3,12 +3,59 @@ import json
 import os
 from datetime import datetime
 
+# Mappage des identifiants fixes (identique à GUI.py pour cohérence)
+path_type_map = {
+    "conventional": {"fr": "Opposition", "en": "Conventional", "de": "Gegenlauffräsen", "es": "Convencional", "index": 1, "code": "1"},
+    "climb": {"fr": "Avalant", "en": "Climb", "de": "Gleichlauffräsen", "es": "Ascendente", "index": 2, "code": "2"},
+    "alternate": {"fr": "Alterné", "en": "Alternate", "de": "Abwechselnd", "es": "Alternado", "index": 3, "code": "3"},
+    "right": {"fr": "Droite", "en": "Right", "de": "Rechts", "es": "Derecha", "index": 1, "code": "G02"},
+    "left": {"fr": "Gauche", "en": "Left", "de": "Links", "es": "Izquierda", "index": 2, "code": "G03"}
+}
+
+drilling_type_map = {
+    "contour": {"fr": "Trou traversant", "en": "Contour", "de": "Durchgangsloch", "es": "Agujero pasante", "index": 1},
+    "blind": {"fr": "Trou borgne", "en": "Blind", "de": "Blindloch", "es": "Agujero ciego", "index": 2},
+    "outer": {"fr": "Diamètre extérieur", "en": "Outer", "de": "Außendurchmesser", "es": "Diámetro exterior", "index": 3}
+}
+
+corner_type_map = {
+    "front_left": {"fr": "Avant Gauche (AVG)", "en": "Front Left (FL)", "de": "Vorne Links", "es": "Delantero Izquierdo", "index": 1},
+    "front_right": {"fr": "Avant Droit (AVD)", "en": "Front Right (FR)", "de": "Vorne Rechts", "es": "Delantero Derecho", "index": 2},
+    "rear_right": {"fr": "Arrière Droit (ARD)", "en": "Rear Right (RR)", "de": "Hinten Rechts", "es": "Trasero Derecho", "index": 3},
+    "rear_left": {"fr": "Arrière Gauche (ARG)", "en": "Rear Left (RL)", "de": "Hinten Links", "es": "Trasero Izquierdo", "index": 4}
+}
+
+thread_type_map = {
+    "nut_internal": {"fr": "Ecrou (Interne)", "en": "Nut (Internal)", "de": "Mutter (Innen)", "es": "Tuerca (Interna)", "index": 1},
+    "screw_external": {"fr": "Vis (Externe)", "en": "Screw (External)", "de": "Schraube (Außen)", "es": "Tornillo (Externa)", "index": 2}
+}
+
+def convert_legacy_to_fixed_id(value, mapping, lang="fr"):
+    """Convertit une valeur traduite ou un code en identifiant fixe."""
+    for fixed_id, data in mapping.items():
+        if value == fixed_id or value == data.get(lang, "") or value == data.get("code", "") or value in [data.get(l, "") for l in ["fr", "en", "de", "es"]]:
+            return fixed_id
+    return value
+
 def load_config():
     """Charge les derniers paramètres depuis config.json, s'il existe."""
     config_path = "config.json"
     if os.path.exists(config_path):
         with open(config_path, "r") as f:
-            return json.load(f)
+            config = json.load(f)
+            # Convertir les anciennes valeurs traduites ou codes en identifiants fixes
+            lang = config.get("language", "fr")
+            for section in ["surfacing", "contour_drilling", "corner_radius", "oblong_hole", "matrix_drilling", "threading"]:
+                if section in config:
+                    if "path_type" in config[section]:
+                        config[section]["path_type"] = convert_legacy_to_fixed_id(config[section]["path_type"], path_type_map, lang)
+                    if "drilling_type" in config[section]:
+                        config[section]["drilling_type"] = convert_legacy_to_fixed_id(config[section]["drilling_type"], drilling_type_map, lang)
+                    if "corner_type" in config[section]:
+                        config[section]["corner_type"] = convert_legacy_to_fixed_id(config[section]["corner_type"], corner_type_map, lang)
+                    if "thread_type" in config[section]:
+                        config[section]["thread_type"] = convert_legacy_to_fixed_id(config[section]["thread_type"], thread_type_map, lang)
+            return config
     return {}
 
 def save_config(config):
@@ -55,9 +102,9 @@ def calculate_stock_dimensions(operations):
         tool_diameter = defaults.get("tool_diameter", 10.0)
         total_depth = defaults.get("total_depth", 2.0)
         clearance_height = defaults.get("clearance_height", 5.0)
-        drilling_type = defaults.get("drilling_type", "Contour" if not defaults.get("is_blind_hole", False) else "Blind")
+        drilling_type = defaults.get("drilling_type", "contour")
 
-        if drilling_type == "Outer":
+        if drilling_type == "outer":
             # Usinage extérieur : chemin à hole_radius + tool_radius
             stock_x = hole_diameter + 2 * tool_diameter
             stock_y = hole_diameter + 2 * tool_diameter
@@ -137,19 +184,11 @@ def surfacing(config):
     depth_per_pass = defaults.get("depth_per_pass", 1.0)
     feed_rate = defaults.get("feed_rate", 1800)
     spindle_speed = defaults.get("spindle_speed", 1000)
-    path_type = defaults.get("path_type", "1")  # Valeur brute depuis config.json
+    path_type = defaults.get("path_type", "conventional")
 
-    # Mapping bidirectionnel pour path_type
-    path_type_map = {
-        "1": "Opposition",
-        "2": "Avalant",
-        "3": "Alterné",
-        "Opposition": "1",
-        "Avalant": "2",
-        "Alterné": "3"
-    }
-    path_type_code = path_type_map.get(path_type, path_type)  # Utilise la valeur brute si elle est déjà un label
-    path_type_label = path_type_map.get(path_type_code, "Opposition")
+    # Obtenir le code pour path_type
+    path_type_code = path_type_map.get(path_type, {}).get("code", "1")
+    path_type_label = path_type_map.get(path_type, {}).get("fr", "Opposition")
     print(f"Débogage: path_type lu = {path_type} (code = {path_type_code}, label = {path_type_label})")
 
     # Validation des paramètres
@@ -175,11 +214,11 @@ def surfacing(config):
     gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
     gcode += f"G00 Z{clearance_height:.3f} f{feed_rate}\n"
 
-    if path_type_code == "2":  # En avalant
+    if path_type_code == "2":  # En avalant (climb)
         gcode += f"G00 X{initial_x:.3f} Y{end_y:.3f}\n"
-    elif path_type_code == "3":  # En alternance
+    elif path_type_code == "3":  # En alternance (alternate)
         gcode += f"G00 X{initial_x:.3f} Y{initial_y:.3f}\n"
-    else:  # En opposition (défaut ou 1)
+    else:  # En opposition (conventional)
         gcode += f"G00 X{initial_x:.3f} Y{initial_y:.3f}\n"
 
     current_z = start_z
@@ -227,10 +266,14 @@ def contour_drilling(config):
     depth_per_pass = defaults.get("depth_per_pass", 1.0)
     feed_rate = defaults.get("feed_rate", 1800)
     spindle_speed = defaults.get("spindle_speed", 1000)
-    path_type = {"Opposition": "Opposition", "Avalant": "Avalant"}.get(defaults.get("path_type", "Opposition"), "Opposition")
-    drilling_type = defaults.get("drilling_type", "Contour")
-    is_blind_hole = drilling_type == "Blind"  # Forcer is_blind_hole à True pour drilling_type = "Blind"
+    path_type = defaults.get("path_type", "conventional")
+    drilling_type = defaults.get("drilling_type", "contour")
+    is_blind_hole = drilling_type == "blind"
     overlap_percent = defaults.get("overlap_percent", 50.0) if is_blind_hole else 0.0
+
+    # Obtenir le label pour affichage
+    path_type_label = path_type_map.get(path_type, {}).get("fr", "Opposition")
+    drilling_type_label = drilling_type_map.get(drilling_type, {}).get("fr", "Trou traversant")
 
     # Validation des paramètres
     if total_depth <= 0 or depth_per_pass <= 0 or tool_diameter <= 0 or hole_diameter <= 0:
@@ -249,7 +292,7 @@ def contour_drilling(config):
     initial_y = start_y
 
     gcode = f"\n; Contour drilling operation\n"
-    gcode += f"; ({path_type}, {drilling_type})\n"
+    gcode += f"; ({path_type_label}, {drilling_type_label})\n"
     gcode += f"; D={hole_diameter:.1f} H={total_depth:.1f} Bit={tool_diameter}\n"
     gcode += f"; P={total_depth/depth_per_pass:.2f} x {depth_per_pass}mm\n"
     gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
@@ -259,7 +302,7 @@ def contour_drilling(config):
 
     hole_radius = hole_diameter / 2
     tool_radius = tool_diameter / 2
-    if drilling_type == "Outer":
+    if drilling_type == "outer":
         circle_radius = hole_radius + tool_radius  # Chemin extérieur
         num_circles = 1  # Un seul cercle pour Outer
     else:  # Contour ou Blind
@@ -281,7 +324,7 @@ def contour_drilling(config):
             tangent_x = start_x + current_radius
             gcode += f"G00 X{tangent_x:.3f} Y{initial_y:.3f}\n"
             gcode += f"G01 Z{current_z:.3f}\n"
-            if path_type == "Opposition":
+            if path_type == "conventional":
                 gcode += f"G02 X{tangent_x:.3f} Y{initial_y:.3f} I{-current_radius:.3f} J0.000\n"
             else:
                 gcode += f"G03 X{tangent_x:.3f} Y{initial_y:.3f} I{-current_radius:.3f} J0.000\n"
@@ -303,11 +346,16 @@ def threading(config):
     depth_per_pass = defaults.get("depth_per_pass", 0.5)
     feed_rate = defaults.get("feed_rate", 1800)
     spindle_speed = defaults.get("spindle_speed", 1000)
-    path_type = {"Droite": "G02", "Gauche": "G03"}.get(defaults.get("path_type", "G03"), "G03")
+    path_type = defaults.get("path_type", "right")
     thread_pitch = defaults.get("thread_pitch", 10.0)
     thread_number = int(defaults.get("thread_number", 6))
-    thread_type = defaults.get("thread_type", "Ecrou (Interne)")  # Nouveau paramètre
+    thread_type = defaults.get("thread_type", "nut_internal")
     overlap_percent = defaults.get("overlap_percent", 50.0)  # Not used in this implementation
+
+    # Obtenir le code et le label pour path_type
+    path_type_code = path_type_map.get(path_type, {}).get("code", "G02")
+    path_type_label = path_type_map.get(path_type, {}).get("fr", "Droite")
+    thread_type_label = thread_type_map.get(thread_type, {}).get("fr", "Ecrou (Interne)")
 
     # Validation des paramètres
     if hole_diameter <= tool_diameter:
@@ -329,13 +377,13 @@ def threading(config):
     tool_radius = tool_diameter / 2
 
     # Bloc conditionnel pour Ecrou (Interne) ou Vis (Externe)
-    if thread_type == "Ecrou (Interne)":
-        # Bloc actuel pour filetage interne (Ecrou)
-        base_x = hole_radius - depth_per_pass - tool_radius - total_depth  # Formule du commentaire pour première passe
-        i_value = -base_x  # Comme dans l'exemple
+    if thread_type == "nut_internal":
+        # Bloc pour filetage interne (Ecrou)
+        base_x = hole_radius - depth_per_pass - tool_radius - total_depth
+        i_value = -base_x
 
         gcode = f"\n; Threading operation\n"
-        gcode += f";(Ecrou, {defaults.get('path_type', 'Left')})\n"
+        gcode += f"; ({thread_type_label}, {path_type_label})\n"
         gcode += f"; D={hole_diameter:.1f} H={thread_number*thread_pitch:.1f} P={thread_pitch:.1f}\n"
         gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
         gcode += f"G00 Z{clearance_height} S{spindle_speed:.1f}\n"
@@ -343,20 +391,20 @@ def threading(config):
 
         for pass_num in range(1, num_radial_passes + 1):
             current_x = base_x + (pass_num + 1) * depth_per_pass
-            gcode += f"G01 X{start_x + current_x:.3f} Y{start_y:.3f}\n"  # Assumer centre à (start_x, start_y)
+            gcode += f"G01 X{start_x + current_x:.3f} Y{start_y:.3f}\n"
             for turn in range(1, thread_number + 1):
-                next_z = start_z - thread_pitch * turn  # Z absolu depuis start_z
-                gcode += f"{path_type} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000 Z{next_z:.3f}\n"
-            gcode += f"G00 X{start_x:.3f} Y{start_y:.3f}\n"  # Retour au centre
+                next_z = start_z - thread_pitch * turn
+                gcode += f"{path_type_code} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000 Z{next_z:.3f}\n"
+            gcode += f"G00 X{start_x:.3f} Y{start_y:.3f}\n"
             if pass_num < num_radial_passes:
-                gcode += f"G00 Z{start_z:.3f}\n\n"  # Reposition pour prochaine passe
-    else:  # Vis (Externe)
-        # Bloc alternatif pour filetage externe (Vis) - Copie initiale pour validation
-        base_x = hole_radius - depth_per_pass + tool_radius  # À ajuster pour Vis si nécessaire
-        i_value = -base_x  # À ajuster pour Vis si nécessaire
+                gcode += f"G00 Z{start_z:.3f}\n\n"
+    else:  # screw_external
+        # Bloc pour filetage externe (Vis)
+        base_x = hole_radius - depth_per_pass + tool_radius
+        i_value = -base_x
 
         gcode = f"\n; Threading operation\n"
-        gcode += f";(Vis, {defaults.get('path_type', 'Left')})\n"
+        gcode += f"; ({thread_type_label}, {path_type_label})\n"
         gcode += f"; D={hole_diameter:.1f} H={thread_number*thread_pitch:.1f} P={thread_pitch:.1f}\n"
         gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
         gcode += f"G00 Z{clearance_height} S{spindle_speed:.1f}\n"
@@ -364,18 +412,18 @@ def threading(config):
 
         for pass_num in range(1, num_radial_passes + 1):
             current_x = base_x - (pass_num) * depth_per_pass + depth_per_pass
-            gcode += f"G01 X{start_x + current_x:.3f} Y{start_y:.3f}\n"  # Assumer centre à (start_x, start_y)
+            gcode += f"G01 X{start_x + current_x:.3f} Y{start_y:.3f}\n"
             for turn in range(1, thread_number + 1):
-                next_z = start_z - thread_pitch * turn  # Z absolu depuis start_z
-                gcode += f"{path_type} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000 Z{next_z:.3f}\n"
-            gcode += f"G00 X{start_x + hole_radius + tool_radius + total_depth:.3f} Y{start_y:.3f}\n"  # Retour au centre
+                next_z = start_z - thread_pitch * turn
+                gcode += f"{path_type_code} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000 Z{next_z:.3f}\n"
+            gcode += f"G00 X{start_x + hole_radius + tool_radius + total_depth:.3f} Y{start_y:.3f}\n"
             if pass_num < num_radial_passes:
-                gcode += f"G00 Z{start_z:.3f}\n\n"  # Reposition pour prochaine passe
+                gcode += f"G00 Z{start_z:.3f}\n\n"
 
     # Fin à Z clearance
     gcode += f"G00 Z{clearance_height:.3f}\n"
 
-    # Pour calculate_stock_dimensions : end_x/y basé sur hole_diameter, current_z = start_z - thread_number * thread_pitch
+    # Pour calculate_stock_dimensions
     end_x = start_x + hole_diameter
     end_y = start_y + hole_diameter
     current_z = start_z - thread_number * thread_pitch
@@ -387,9 +435,9 @@ def matrix_drilling(config):
     start_x = defaults.get("start_x", 0.0)
     start_y = defaults.get("start_y", 0.0)
     start_z = defaults.get("start_z", 0.0)
-    num_cols = int(float(defaults.get("num_cols", 1)))  # Forcer conversion en int
+    num_cols = int(float(defaults.get("num_cols", 1)))
     spacing_x = float(defaults.get("spacing_x", 10.0))
-    num_rows = int(float(defaults.get("num_rows", 1)))  # Forcer conversion en int
+    num_rows = int(float(defaults.get("num_rows", 1)))
     spacing_y = float(defaults.get("spacing_y", 10.0))
     clearance_height = float(defaults.get("clearance_height", 5.0))
     deburr_height = float(defaults.get("deburr_height", 2.0))
@@ -410,8 +458,6 @@ def matrix_drilling(config):
     if spacing_x < 0 or spacing_y < 0:
         raise ValueError("Les pas sur X et Y doivent être positifs ou nuls.")
 
-    #print(f"Debug: num_cols={num_cols}, num_rows={num_rows}, spacing_x={spacing_x}, spacing_y={spacing_y}")  # Ligne de débogage
-
     num_passes_z = int(total_depth / depth_per_pass) + (1 if total_depth % depth_per_pass != 0 else 0)
     end_x = start_x + (num_cols - 1) * spacing_x
     end_y = start_y + (num_rows - 1) * spacing_y
@@ -429,7 +475,6 @@ def matrix_drilling(config):
         x_positions = [start_x + i * spacing_x for i in range(num_cols)]
         if j % 2 == 1:  # Inverse l'ordre pour les lignes impaires
             x_positions = x_positions[::-1]
-        #print(f"Debug: Row {j+1}, Y={current_y}, X positions: {x_positions}")  # Ligne de débogage
         for current_x in x_positions:
             gcode += f"; Hole at X={current_x:.3f}, Y={current_y:.3f}\n"
             gcode += f"G00 X{current_x:.3f} Y{current_y:.3f}\n"
@@ -454,8 +499,12 @@ def corner_radius(config):
     depth_per_pass = defaults.get("depth_per_pass", 0.5)
     feed_rate = defaults.get("feed_rate", 1800)
     spindle_speed = defaults.get("spindle_speed", 1000)
-    path_type = {"Opposition": "Opposition", "Avalant": "Avalant"}.get(defaults.get("path_type", "Opposition"), "Opposition")
-    corner_type = defaults.get("corner_type", "Avant Gauche (AVG)")  # Valeur directe depuis config.json
+    path_type = defaults.get("path_type", "conventional")
+    corner_type = defaults.get("corner_type", "front_left")
+
+    # Obtenir le label pour affichage
+    path_type_label = path_type_map.get(path_type, {}).get("fr", "Opposition")
+    corner_type_label = corner_type_map.get(corner_type, {}).get("fr", "Avant Gauche (AVG)")
 
     # Validation des paramètres
     if radius <= 0 or tool_diameter <= 0:
@@ -471,14 +520,14 @@ def corner_radius(config):
     tool_radius = tool_diameter / 2
     arc_radius = radius + tool_radius
 
-    gcode = f"\n; Corner radius operation ({corner_type}, {path_type})\n"
+    gcode = f"\n; Corner radius operation ({corner_type_label}, {path_type_label})\n"
     gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
     gcode += f"G00 Z{clearance_height:.3f} f{feed_rate}\n"
     gcode += "G91\n"  # Mode relatif pour les arcs
 
     # Définir les commandes d'arc et retours selon corner_type et path_type
-    if corner_type == "Avant Gauche (AVG)":
-        if path_type == "Opposition":
+    if corner_type == "front_left":
+        if path_type == "conventional":
             arc_cmd = f"G03 X{arc_radius:.3f} Y-{arc_radius:.3f} I{arc_radius:.3f} J0.000"
             return_x = f"G00 X-{arc_radius:.3f}"
             return_y = f"G00 Y{arc_radius:.3f}"
@@ -486,8 +535,8 @@ def corner_radius(config):
             arc_cmd = f"G02 X-{arc_radius:.3f} Y{arc_radius:.3f} I0.000 J{arc_radius:.3f}"
             return_x = f"G00 X{arc_radius:.3f}"
             return_y = f"G00 Y-{arc_radius:.3f}"
-    elif corner_type == "Avant Droit (AVD)":
-        if path_type == "Opposition":
+    elif corner_type == "front_right":
+        if path_type == "conventional":
             arc_cmd = f"G03 X{arc_radius:.3f} Y{arc_radius:.3f} I0.000 J{arc_radius:.3f}"
             return_x = f"G00 X-{arc_radius:.3f}"
             return_y = f"G00 Y-{arc_radius:.3f}"
@@ -495,8 +544,8 @@ def corner_radius(config):
             arc_cmd = f"G02 X-{arc_radius:.3f} Y-{arc_radius:.3f} I-{arc_radius:.3f} J0.000"
             return_x = f"G00 X{arc_radius:.3f}"
             return_y = f"G00 Y{arc_radius:.3f}"
-    elif corner_type == "Arrière Droit (ARD)":
-        if path_type == "Opposition":
+    elif corner_type == "rear_right":
+        if path_type == "conventional":
             arc_cmd = f"G03 X-{arc_radius:.3f} Y{arc_radius:.3f} I-{arc_radius:.3f} J0.000"
             return_x = f"G00 X{arc_radius:.3f}"
             return_y = f"G00 Y-{arc_radius:.3f}"
@@ -504,8 +553,8 @@ def corner_radius(config):
             arc_cmd = f"G02 X{arc_radius:.3f} Y-{arc_radius:.3f} I0.000 J-{arc_radius:.3f}"
             return_x = f"G00 X-{arc_radius:.3f}"
             return_y = f"G00 Y{arc_radius:.3f}"
-    elif corner_type == "Arrière Gauche (ARG)":
-        if path_type == "Opposition":
+    elif corner_type == "rear_left":
+        if path_type == "conventional":
             arc_cmd = f"G03 X-{arc_radius:.3f} Y-{arc_radius:.3f} I0.000 J-{arc_radius:.3f}"
             return_x = f"G00 X{arc_radius:.3f}"
             return_y = f"G00 Y{arc_radius:.3f}"
@@ -545,11 +594,14 @@ def oblong_hole(config):
     length_y = defaults.get("length_y", 20.0)
     width = defaults.get("width", 10.0)
     tool_diameter = defaults.get("tool_diameter", 5.0)
-    path_type = {"Opposition": "Opposition", "Avalant": "Avalant"}.get(defaults.get("path_type", "Opposition"), "Opposition")
+    path_type = defaults.get("path_type", "conventional")
     total_depth = defaults.get("total_depth", 2.0)
     depth_per_pass = defaults.get("depth_per_pass", 0.5)
     feed_rate = defaults.get("feed_rate", 1800)
     spindle_speed = defaults.get("spindle_speed", 1000)
+
+    # Obtenir le label pour affichage
+    path_type_label = path_type_map.get(path_type, {}).get("fr", "Opposition")
 
     # Validation des paramètres
     if length_x < 0 or length_y < 0 or width <= 0 or tool_diameter <= 0:
@@ -566,7 +618,7 @@ def oblong_hole(config):
     half_length_x = length_x / 2
     half_length_y = length_y / 2
 
-    gcode = f"\n; Oblong hole operation ({path_type})\n"
+    gcode = f"\n; Oblong hole operation ({path_type_label})\n"
     gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
     gcode += f"G90\n"
     gcode += f"G00 X{start_x:.3f} Y{start_y:.3f} Z{start_z:.3f} f{feed_rate}\n"
@@ -581,7 +633,7 @@ def oblong_hole(config):
         gcode += "G91\n"
 
         gcode += f"G00 X{-half_length_x:.3f} Y{-half_length_y:.3f}\n"
-        if path_type == "Opposition":
+        if path_type == "conventional":
             gcode += f"G02 X{-half_width:.3f} Y{half_width:.3f} I0.000 J{half_width:.3f}\n"
             gcode += f"G01 X0.000 Y{length_y:.3f}\n"
             gcode += f"G02 X{half_width:.3f} Y{half_width:.3f} I{half_width:.3f} J0.000\n"

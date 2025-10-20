@@ -7,6 +7,33 @@ from PIL import Image, ImageTk
 import glob
 import time
 
+# Mappage des identifiants fixes
+path_type_map = {
+    "conventional": {"fr": "Opposition", "en": "Conventional", "de": "Gegenlauffräsen", "es": "Convencional", "index": 1},
+    "climb": {"fr": "Avalant", "en": "Climb", "de": "Gleichlauffräsen", "es": "Ascendente", "index": 2},
+    "alternate": {"fr": "Alterné", "en": "Alternate", "de": "Abwechselnd", "es": "Alternado", "index": 3},
+    "right": {"fr": "Droite", "en": "Right", "de": "Rechts", "es": "Derecha", "index": 1},
+    "left": {"fr": "Gauche", "en": "Left", "de": "Links", "es": "Izquierda", "index": 2}
+}
+
+drilling_type_map = {
+    "contour": {"fr": "Trou traversant", "en": "Contour", "de": "Durchgangsloch", "es": "Agujero pasante", "index": 1},
+    "blind": {"fr": "Trou borgne", "en": "Blind", "de": "Blindloch", "es": "Agujero ciego", "index": 2},
+    "outer": {"fr": "Diamètre extérieur", "en": "Outer", "de": "Außendurchmesser", "es": "Diámetro exterior", "index": 3}
+}
+
+corner_type_map = {
+    "front_left": {"fr": "Avant Gauche (AVG)", "en": "Front Left (FL)", "de": "Vorne Links", "es": "Delantero Izquierdo", "index": 1},
+    "front_right": {"fr": "Avant Droit (AVD)", "en": "Front Right (FR)", "de": "Vorne Rechts", "es": "Delantero Derecho", "index": 2},
+    "rear_right": {"fr": "Arrière Droit (ARD)", "en": "Rear Right (RR)", "de": "Hinten Rechts", "es": "Trasero Derecho", "index": 3},
+    "rear_left": {"fr": "Arrière Gauche (ARG)", "en": "Rear Left (RL)", "de": "Hinten Links", "es": "Trasero Izquierdo", "index": 4}
+}
+
+thread_type_map = {
+    "nut_internal": {"fr": "Ecrou (Interne)", "en": "Nut (Internal)", "de": "Mutter (Innen)", "es": "Tuerca (Interna)", "index": 1},
+    "screw_external": {"fr": "Vis (Externe)", "en": "Screw (External)", "de": "Schraube (Außen)", "es": "Tornillo (Externa)", "index": 2}
+}
+
 # Dictionnaire pour mapper les codes de langue aux noms affichables
 language_display_names = {
     "fr": "Français",
@@ -24,7 +51,16 @@ mode_acronyms = {
     "6": "THR"
 }
 
-# Charger les traductions
+def convert_legacy_to_fixed_id(value, mapping, lang):
+    """Convertit une valeur traduite en identifiant fixe."""
+    print(f"Débogage: Conversion de la valeur '{value}' pour le mappage {list(mapping.keys())} (langue: {lang})")
+    for fixed_id, data in mapping.items():
+        if value == fixed_id or value == data.get(lang, "") or value in [data.get(l, "") for l in language_display_names]:
+            print(f"Débogage: Valeur '{value}' convertie en identifiant fixe '{fixed_id}'")
+            return fixed_id
+    print(f"Débogage: Valeur '{value}' non trouvée, retourne 'conventional' par défaut")
+    return "conventional"  # Fallback pour éviter les erreurs
+
 def load_translations():
     translations_path = os.path.join(os.path.dirname(__file__), "translations.json")
     if os.path.exists(translations_path):
@@ -41,6 +77,21 @@ def load_config():
             config = json.load(f)
             if config.get("language", "fr") not in valid_languages:
                 config["language"] = "fr"
+            lang = config.get("language", "fr")
+            for section in ["surfacing", "contour_drilling", "corner_radius", "oblong_hole", "matrix_drilling", "threading"]:
+                if section in config:
+                    if "path_type" in config[section]:
+                        # Forcer conventional pour modes 2, 4, 5 si alternate est détecté
+                        if section in ["contour_drilling", "corner_radius", "oblong_hole"] and config[section]["path_type"] == "alternate":
+                            config[section]["path_type"] = "conventional"
+                            print(f"Débogage: {section} - path_type 'alternate' non autorisé, forcé à 'conventional'")
+                        config[section]["path_type"] = convert_legacy_to_fixed_id(config[section]["path_type"], path_type_map, lang)
+                    if "drilling_type" in config[section]:
+                        config[section]["drilling_type"] = convert_legacy_to_fixed_id(config[section]["drilling_type"], drilling_type_map, lang)
+                    if "corner_type" in config[section]:
+                        config[section]["corner_type"] = convert_legacy_to_fixed_id(config[section]["corner_type"], corner_type_map, lang)
+                    if "thread_type" in config[section]:
+                        config[section]["thread_type"] = convert_legacy_to_fixed_id(config[section]["thread_type"], thread_type_map, lang)
             return config
     return {
         "project_name": "test",
@@ -56,140 +107,113 @@ def save_config(config):
         json.dump(config, f, indent=4)
 
 def generate_image_filename(mode, path_type, corner_type=None, drilling_type=None, x_coord=None, y_coord=None, thread_type=None):
-    path_type_map = {
-        "Opposition": 1, "Avalant": 2, "Alterné": 3, "Droite": 1, "Gauche": 2,
-        "Conventional": 1, "Climb": 2, "Alternate": 3, "Right": 1, "Left": 2,
-        "Gegenlauffräsen": 1, "Gleichlauffräsen": 2, "Abwechselnd": 3, "Rechts": 1, "Links": 2,
-        "Convencional": 1, "Ascendente": 2, "Alternado": 3, "Derecha": 1, "Izquierda": 2
-    }
-    corner_type_map = {
-        "Avant Gauche (AVG)": 1, "Avant Droit (AVD)": 2, "Arrière Droit (ARD)": 3, "Arrière Gauche (ARG)": 4,
-        "Front Left (FL)": 1, "Front Right (FR)": 2, "Rear Right (RR)": 3, "Rear Left (RL)": 4,
-        "Vorne Links": 1, "Vorne Rechts": 2, "Hinten Rechts": 3, "Hinten Links": 4,
-        "Delantero Izquierdo": 1, "Delantero Derecho": 2, "Trasero Derecho": 3, "Trasero Izquierdo": 4
-    }
-    thread_type_map = {
-        "Ecrou (Interne)": 1, "Vis (Externe)": 2,
-        "Nut (Internal)": 1, "Screw (External)": 2,
-        "Mutter (Innen)": 1, "Schraube (Außen)": 2,
-        "Tuerca (Interna)": 1, "Tornillo (Externa)": 2
-    }
-    drilling_type_map = {
-        "Blind": 2, "Contour": 1, "Outer": 3,
-        "Trou borgne": 2, "Trou traversant": 1, "Diamètre extérieur": 3,
-        "Blindloch": 2, "Durchgangsloch": 1, "Außendurchmesser": 3,
-        "Agujero ciego": 2, "Agujero pasante": 1, "Diámetro exterior": 3
-    }
+    filename = f"images/mode{mode}"
+    print(f"Débogage: Génération du nom de fichier pour mode={mode}, path_type={path_type}, corner_type={corner_type}, drilling_type={drilling_type}, x_coord={x_coord}, y_coord={y_coord}, thread_type={thread_type}")
     
-    filename = f"images\mode{mode}"
     if mode == "1":
-        if path_type in ["Opposition", "Conventional", "Gegenlauffräsen", "Convencional"]:
-            filename += "10"
-        elif path_type in ["Avalant", "Climb", "Gleichlauffräsen", "Ascendente"]:
-            filename += "20"
-        elif path_type in ["Alterné", "Alternate", "Abwechselnd", "Alternado"]:
-            filename += "30"
+        path_index = path_type_map.get(path_type, path_type_map["conventional"]).get("index", 1)
+        filename += f"{path_index}0"
+        print(f"Débogage: Mode 1, path_index={path_index}, filename={filename}")
     elif mode == "2":
-        path_index = path_type_map.get(path_type, 1)
-        drilling_index = drilling_type_map.get(drilling_type, 1)
+        path_index = path_type_map.get(path_type, path_type_map["conventional"]).get("index", 1)
+        drilling_index = drilling_type_map.get(drilling_type, drilling_type_map["contour"]).get("index", 1)
         filename += f"{path_index}{drilling_index}"
+        print(f"Débogage: Mode 2, path_index={path_index}, drilling_index={drilling_index}, filename={filename}")
     elif mode == "6":
-        path_index = path_type_map.get(path_type, 1)
-        thread_index = thread_type_map.get(thread_type, 1)
+        path_index = path_type_map.get(path_type, path_type_map["right"]).get("index", 1)
+        thread_index = thread_type_map.get(thread_type, thread_type_map["nut_internal"]).get("index", 1)
         filename += f"{path_index}{thread_index}"
+        print(f"Débogage: Mode 6, path_index={path_index}, thread_index={thread_index}, filename={filename}")
     elif mode == "3":
         filename += "00"
+        print(f"Débogage: Mode 3, filename={filename}")
     elif mode == "4":
-        if path_type in ["Opposition", "Conventional", "Gegenlauffräsen", "Convencional"]:
-            filename += str(corner_type_map.get(corner_type, 1)) + "1"
-        elif path_type in ["Avalant", "Climb", "Gleichlauffräsen", "Ascendente"]:
-            filename += str(corner_type_map.get(corner_type, 1)) + "2"
+        path_index = path_type_map.get(path_type, path_type_map["conventional"]).get("index", 1)
+        corner_index = corner_type_map.get(corner_type, corner_type_map["front_left"]).get("index", 1)
+        filename += f"{corner_index}{path_index}"
+        print(f"Débogage: Mode 4, path_index={path_index}, corner_index={corner_index}, filename={filename}")
     elif mode == "5":
-        print(f"Mode 5 conditions: path_type={path_type}, x_coord={x_coord}, y_coord={y_coord}")
-        if path_type in ["Opposition", "Conventional", "Gegenlauffräsen", "Convencional"]:
+        path_index = path_type_map.get(path_type, path_type_map["conventional"]).get("index", 1)
+        print(f"Débogage: Mode 5, path_type={path_type}, path_index={path_index}, x_coord={x_coord}, y_coord={y_coord}")
+        if path_type in ["conventional", "climb"]:
             if x_coord == 0 and y_coord == 0:
-                filename += "13"
-                print("  -> both 0: 13")
+                filename += f"{path_index}3"
+                print("Débogage: Mode 5 -> both 0: 13 or 23")
             elif x_coord == 0:
-                filename += "11"
-                print("  -> x=0: 11")
+                filename += f"{path_index}1"
+                print("Débogage: Mode 5 -> x=0: 11 or 21")
             elif y_coord == 0:
-                filename += "12"
-                print("  -> y=0: 12")
+                filename += f"{path_index}2"
+                print("Débogage: Mode 5 -> y=0: 12 or 22")
             else:
-                filename += "14"
-                print("  -> both >0: 14")
-        elif path_type in ["Avalant", "Climb", "Gleichlauffräsen", "Ascendente"]:
-            if x_coord == 0 and y_coord == 0:
-                filename += "23"
-                print("  -> both 0: 23")
-            elif x_coord == 0:
-                filename += "21"
-                print("  -> x=0: 21")
-            elif y_coord == 0:
-                filename += "22"
-                print("  -> y=0: 22")
-            else:
-                filename += "24"
-                print("  -> both >0: 24")
+                filename += f"{path_index}4"
+                print("Débogage: Mode 5 -> both >0: 14 or 24")
+        else:
+            filename += f"14"
+            print("Débogage: Mode 5 -> path_type non valide, fallback: 14")
     
     filename += ".png"
-    print(f"Generated image filename: {filename}")
+    print(f"Débogage: Nom de fichier final : {filename}")
     return filename
 
 def update_image():
-    print("update_image called")
+    print("Débogage: update_image called")
     selected_mode_id = mode_var.get()
     translations = load_translations()
     lang = language_var.get()
     try:
+        print(f"Débogage: Valeurs brutes des combobox : {{ {', '.join(f'{k}: {v.get()}' for k, v in entry_vars.items())} }}")
         if selected_mode_id == "1":
-            path_type = entry_vars["path_type"].get()
+            path_type = convert_legacy_to_fixed_id(entry_vars["path_type"].get(), path_type_map, lang)
             filename = generate_image_filename(selected_mode_id, path_type)
         elif selected_mode_id == "2":
-            path_type = entry_vars["path_type"].get()
-            drilling_type = entry_vars["drilling_type"].get()
-            print(f"For mode 2 - path_type: {path_type}, drilling_type: {drilling_type}")
+            path_type = convert_legacy_to_fixed_id(entry_vars["path_type"].get(), path_type_map, lang)
+            drilling_type = convert_legacy_to_fixed_id(entry_vars["drilling_type"].get(), drilling_type_map, lang)
+            print(f"Débogage: Mode 2 - path_type={path_type}, drilling_type={drilling_type}")
             filename = generate_image_filename(selected_mode_id, path_type, drilling_type=drilling_type)
         elif selected_mode_id == "6":
-            path_type = entry_vars["path_type"].get()
-            thread_type = entry_vars["thread_type"].get()
-            print(f"For mode 6 - path_type: {path_type}, thread_type: {thread_type}")
+            path_type = convert_legacy_to_fixed_id(entry_vars["path_type"].get(), path_type_map, lang)
+            thread_type = convert_legacy_to_fixed_id(entry_vars["thread_type"].get(), thread_type_map, lang)
+            print(f"Débogage: Mode 6 - path_type={path_type}, thread_type={thread_type}")
             filename = generate_image_filename(selected_mode_id, path_type, thread_type=thread_type)
         elif selected_mode_id == "3":
-            filename = generate_image_filename(selected_mode_id, "Opposition")
+            filename = generate_image_filename(selected_mode_id, "conventional")
         elif selected_mode_id == "4":
-            path_type = entry_vars["path_type"].get()
-            corner_type = entry_vars["corner_type"].get()
-            print(f"For mode 4 - path_type: {path_type}, corner_type: {corner_type}")
+            path_type = convert_legacy_to_fixed_id(entry_vars["path_type"].get(), path_type_map, lang)
+            corner_type = convert_legacy_to_fixed_id(entry_vars["corner_type"].get(), corner_type_map, lang)
+            print(f"Débogage: Mode 4 - path_type={path_type}, corner_type={corner_type}")
             filename = generate_image_filename(selected_mode_id, path_type, corner_type=corner_type)
         elif selected_mode_id == "5":
-            path_type = entry_vars["path_type"].get()
+            path_type = convert_legacy_to_fixed_id(entry_vars["path_type"].get(), path_type_map, lang)
             raw_x = entry_vars["length_x"].get()
             raw_y = entry_vars["length_y"].get()
-            print(f"For mode 5 - raw length_x: '{raw_x}', length_y: '{raw_y}', path_type: {path_type}")
-            x_coord = float(raw_x or 0)
-            y_coord = float(raw_y or 0)
-            print(f"  parsed x: {x_coord}, y: {y_coord}")
+            print(f"Débogage: Mode 5 - raw length_x='{raw_x}', length_y='{raw_y}', path_type={path_type}")
+            try:
+                x_coord = float(raw_x or 0)
+                y_coord = float(raw_y or 0)
+            except ValueError:
+                x_coord = y_coord = 0
+                print(f"Débogage: Mode 5 - Conversion échouée, x_coord={x_coord}, y_coord={y_coord}")
+            print(f"Débogage: Mode 5 - parsed x_coord={x_coord}, y_coord={y_coord}")
             filename = generate_image_filename(selected_mode_id, path_type, x_coord=x_coord, y_coord=y_coord)
         else:
             raise KeyError("Mode non supporté")
         
         image_path = os.path.join(os.path.dirname(__file__), filename)
-        print(f"Attempting to load image from: {image_path}")
-        default_path = os.path.join(os.path.dirname(__file__), f"mode{selected_mode_id}.png")
+        print(f"Débogage: Tentative de chargement de l'image : {image_path}")
+        default_path = os.path.join(os.path.dirname(__file__), f"images/mode{selected_mode_id}.png")
         
         try:
             img = Image.open(image_path)
-            print(f"Successfully loaded image: {image_path}")
+            print(f"Débogage: Image chargée avec succès : {image_path}")
         except FileNotFoundError:
-            print(f"Primary image not found: {image_path}")
-            print(f"Falling back to default: {default_path}")
+            print(f"Débogage: Image principale non trouvée : {image_path}")
+            print(f"Débogage: Tentative de chargement de l'image par défaut : {default_path}")
             try:
                 img = Image.open(default_path)
-                print(f"Successfully loaded default image: {default_path}")
+                print(f"Débogage: Image par défaut chargée avec succès : {default_path}")
             except FileNotFoundError:
-                print(f"Default image also not found: {default_path}")
+                print(f"Débogage: Image par défaut non trouvée : {default_path}")
                 image_label.configure(image='')
                 image_label.image = None
                 messagebox.showwarning(
@@ -200,23 +224,23 @@ def update_image():
                 )
                 return
         
-        img = img.resize((200, 150), Image.Resampling.LANCZOS)
+        img = img.resize((400, 300), Image.Resampling.LANCZOS)
         photo = ImageTk.PhotoImage(img)
         image_label.configure(image=photo)
         image_label.image = photo
     except KeyError as e:
-        print(f"KeyError in update_image: {e}")
-        image_path = os.path.join(os.path.dirname(__file__), f"mode{selected_mode_id}.png")
-        print(f"Fallback attempt: {image_path}")
+        print(f"Débogage: KeyError dans update_image : {e}")
+        image_path = os.path.join(os.path.dirname(__file__), f"images/mode{selected_mode_id}.png")
+        print(f"Débogage: Tentative de chargement de l'image de secours : {image_path}")
         try:
             img = Image.open(image_path)
-            print(f"Successfully loaded fallback image: {image_path}")
+            print(f"Débogage: Image de secours chargée avec succès : {image_path}")
             img = img.resize((200, 150), Image.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(img)
             image_label.configure(image=photo)
             image_label.image = photo
         except FileNotFoundError:
-            print(f"Fallback image not found: {image_path}")
+            print(f"Débogage: Image de secours non trouvée : {image_path}")
             image_label.configure(image='')
             image_label.image = None
             messagebox.showwarning(
@@ -233,7 +257,7 @@ def update_fields(event=None):
     lang = language_var.get()
     clear_fields()
 
-    print(f"Mise à jour des champs pour le mode : {selected_mode_id}")
+    print(f"Débogage: Mise à jour des champs pour le mode : {selected_mode_id}")
     mode_params = {
         "1": [
             ("start_x", "start_x", 0.0),
@@ -248,7 +272,7 @@ def update_fields(event=None):
             ("depth_per_pass", "depth_per_pass", 1.0),
             ("feed_rate", "feed_rate", 1800),
             ("spindle_speed", "spindle_speed", 1000),
-            ("path_type", "path_type", "1")
+            ("path_type", "path_type", "conventional")
         ],
         "2": [
             ("start_x", "start_x", 0.0),
@@ -261,8 +285,8 @@ def update_fields(event=None):
             ("depth_per_pass", "depth_per_pass", 1.0),
             ("feed_rate", "feed_rate", 1800),
             ("spindle_speed", "spindle_speed", 24000),
-            ("path_type", "path_type", "Opposition"),
-            ("drilling_type", "drilling_type", "Contour"),
+            ("path_type", "path_type", "conventional"),
+            ("drilling_type", "drilling_type", "contour"),
             ("overlap_percent", "overlap_percent", 50.0)
         ],
         "3": [
@@ -288,8 +312,8 @@ def update_fields(event=None):
             ("depth_per_pass", "depth_per_pass", 0.5),
             ("feed_rate", "feed_rate", 1800),
             ("spindle_speed", "spindle_speed", 24000),
-            ("path_type", "path_type", "Opposition"),
-            ("corner_type", "corner_type", "1")
+            ("path_type", "path_type", "conventional"),
+            ("corner_type", "corner_type", "front_left")
         ],
         "5": [
             ("start_x", "start_x", 0.0),
@@ -299,7 +323,7 @@ def update_fields(event=None):
             ("length_y", "length_y", 20.0),
             ("width", "width", 10.0),
             ("tool_diameter", "tool_diameter", 5.0),
-            ("path_type", "path_type", "Opposition"),
+            ("path_type", "path_type", "conventional"),
             ("total_depth", "total_depth", 2.0),
             ("depth_per_pass", "depth_per_pass", 0.5),
             ("feed_rate", "feed_rate", 1800),
@@ -316,8 +340,8 @@ def update_fields(event=None):
             ("depth_per_pass", "depth_per_pass", 0.5),
             ("feed_rate", "feed_rate", 1800),
             ("spindle_speed", "spindle_speed", 24000),
-            ("path_type", "path_type", "Droite"),
-            ("thread_type", "thread_type", "Ecrou (Interne)"),
+            ("path_type", "path_type", "right"),
+            ("thread_type", "thread_type", "nut_internal"),
             ("overlap_percent", "overlap_percent", 50.0),
             ("thread_pitch", "thread_pitch", 10.0),
             ("thread_number", "thread_number", 6)
@@ -329,40 +353,49 @@ def update_fields(event=None):
     
     for i, (key, label_key, default) in enumerate(mode_params.get(selected_mode_id, [])):
         var_value = params.get(key, str(default))
-        var = tk.StringVar(value=str(var_value))
         label_text = translations["translations"][lang]["fields"].get(label_key, label_key)
         
         if key == "path_type":
-            options = translations["translations"][lang]["path_types"].get(selected_mode_id, ["Opposition", "Avalant"])
-            var = tk.StringVar(value=var_value if var_value in options else options[0])
-            cb = ttk.Combobox(frame, values=options, textvariable=var)
-            cb.grid(row=i+1, column=1, padx=5, pady=2, sticky="ew")
+            if selected_mode_id == "6":
+                options = [path_type_map[id][lang] for id in ["right", "left"]]
+                default_value = path_type_map.get(var_value, path_type_map["right"]).get(lang, "Droite")
+            elif selected_mode_id == "1":
+                options = [path_type_map[id][lang] for id in ["conventional", "climb", "alternate"]]
+                default_value = path_type_map.get(var_value, path_type_map["conventional"]).get(lang, "Opposition")
+            else:  # Modes 2, 3, 4, 5 : limiter à conventional et climb
+                options = [path_type_map[id][lang] for id in ["conventional", "climb"]]
+                # Si var_value est "alternate", forcer conventional comme valeur par défaut
+                default_value = path_type_map.get(var_value if var_value in ["conventional", "climb"] else "conventional", path_type_map["conventional"]).get(lang, "Opposition")
+            var = tk.StringVar(value=default_value)
+            cb = ttk.Combobox(frame, values=options, textvariable=var, state="readonly", style="TCombobox", width=30)
+            cb.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             cb.bind("<<ComboboxSelected>>", lambda e: update_image())
         elif key == "corner_type":
-            options = translations["translations"][lang]["corner_types"]
-            var = tk.StringVar(value=var_value if var_value in options else options[0])
-            cb = ttk.Combobox(frame, values=options, textvariable=var)
-            cb.grid(row=i+1, column=1, padx=5, pady=2, sticky="ew")
+            options = [corner_type_map[id][lang] for id in corner_type_map]
+            var = tk.StringVar(value=corner_type_map.get(var_value, corner_type_map["front_left"]).get(lang, "Avant Gauche (AVG)"))
+            cb = ttk.Combobox(frame, values=options, textvariable=var, state="readonly", style="TCombobox", width=30)
+            cb.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             cb.bind("<<ComboboxSelected>>", lambda e: update_image())
         elif key == "drilling_type":
-            options = translations["translations"][lang]["drilling_types"]
-            var = tk.StringVar(value=var_value if var_value in options else options[0])
-            cb = ttk.Combobox(frame, values=options, textvariable=var)
-            cb.grid(row=i+1, column=1, padx=5, pady=2, sticky="ew")
+            options = [drilling_type_map[id][lang] for id in drilling_type_map]
+            var = tk.StringVar(value=drilling_type_map.get(var_value, drilling_type_map["contour"]).get(lang, "Trou traversant"))
+            cb = ttk.Combobox(frame, values=options, textvariable=var, state="readonly", style="TCombobox", width=30)
+            cb.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             cb.bind("<<ComboboxSelected>>", lambda e: update_image())
         elif key == "thread_type":
-            options = translations["translations"][lang]["thread_types"]
-            var = tk.StringVar(value=var_value if var_value in options else options[0])
-            cb = ttk.Combobox(frame, values=options, textvariable=var)
-            cb.grid(row=i+1, column=1, padx=5, pady=2, sticky="ew")
+            options = [thread_type_map[id][lang] for id in thread_type_map]
+            var = tk.StringVar(value=thread_type_map.get(var_value, thread_type_map["nut_internal"]).get(lang, "Ecrou (Interne)"))
+            cb = ttk.Combobox(frame, values=options, textvariable=var, state="readonly", style="TCombobox", width=30)
+            cb.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             cb.bind("<<ComboboxSelected>>", lambda e: update_image())
         else:
-            entry = ttk.Entry(frame, textvariable=var)
-            entry.grid(row=i+1, column=1, padx=5, pady=2, sticky="ew")
+            var = tk.StringVar(value=str(var_value))
+            entry = ttk.Entry(frame, textvariable=var, style="TEntry", width=30)
+            entry.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             if key in ["length_x", "length_y"]:
                 entry.bind("<KeyRelease>", lambda e: update_image())
         
-        ttk.Label(frame, text=label_text).grid(row=i+1, column=0, padx=5, pady=2, sticky="e")
+        ttk.Label(frame, text=label_text, style="TLabel").grid(row=i, column=0, padx=5, pady=2, sticky="e")
         entry_vars[key] = var
 
     update_image()
@@ -378,7 +411,7 @@ def on_mode_select(event):
     lang = language_var.get()
     mode_id = next((id for id, name in mode_options[lang] if name == selected_name), "1")
     mode_var.set(mode_id)
-    print(f"Mode sélectionné dans on_mode_select : {mode_id}")
+    print(f"Débogage: Mode sélectionné dans on_mode_select : {mode_id}")
 
     current_project_name = project_name_var.get()
     acronym = mode_acronyms.get(mode_id, "TST")
@@ -404,6 +437,7 @@ def update_ui_language():
     lang = language_var.get()
     
     root.title(translations["translations"][lang]["title"])
+    general_frame.configure(text=translations["translations"][lang].get("general_settings", "General Settings"))
     language_label.configure(text=translations["translations"][lang]["language_label"])
     mode_label.configure(text=translations["translations"][lang]["select_mode"])
     project_label.configure(text=translations["translations"][lang]["project_name"])
@@ -417,53 +451,51 @@ def update_ui_language():
     
     update_fields()
 
-# Ajouter ce mappage au début de GUI.py, après les autres mappages
-drilling_type_map = {
-    "Trou borgne": "Blind",
-    "Trou traversant": "Contour",
-    "Diamètre extérieur": "Outer",
-    "Blind": "Blind",
-    "Contour": "Contour",
-    "Outer": "Outer",
-    "Blindloch": "Blind",
-    "Durchgangsloch": "Contour",
-    "Außendurchmesser": "Outer",
-    "Agujero ciego": "Blind",
-    "Agujero pasante": "Contour",
-    "Diámetro exterior": "Outer"
-}
-
 def save_and_generate():
     config = load_config()
     translations = load_translations()
     lang = language_var.get()
     mode = mode_var.get()
-    print(f"Mode à générer dans save_and_generate : {mode}")
+    print(f"Débogage: Mode à générer dans save_and_generate : {mode}")
     config["last_operation"] = mode
     config["project_name"] = project_name_var.get()
     config["machine"] = machine_var.get()
     config["language"] = lang
 
-    print(f"Paramètres enregistrés : {entry_vars.keys()}")
-    if mode == "1":
-        config["surfacing"] = {k: float(v.get()) if k not in ["path_type"] else v.get() for k, v in entry_vars.items()}
-    elif mode == "2":
-        config["contour_drilling"] = {
-            k: float(v.get()) if k not in ["path_type", "drilling_type", "is_blind_hole"] else drilling_type_map.get(v.get(), v.get()) if k == "drilling_type" else v.get()
-            for k, v in entry_vars.items()
-        }
-        config["contour_drilling"]["is_blind_hole"] = config["contour_drilling"]["drilling_type"] == "Blind"
-    elif mode == "6":
-        config["threading"] = {k: float(v.get()) if k not in ["path_type", "thread_type"] else v.get() for k, v in entry_vars.items()}
-    elif mode == "3":
-        config["matrix_drilling"] = {k: float(v.get()) for k, v in entry_vars.items()}
-    elif mode == "4":
-        config["corner_radius"] = {k: float(v.get()) if k not in ["path_type", "corner_type"] else v.get() for k, v in entry_vars.items()}
-    elif mode == "5":
-        config["oblong_hole"] = {k: float(v.get()) if k not in ["path_type"] else v.get() for k, v in entry_vars.items()}
+    print(f"Débogage: Paramètres enregistrés : {entry_vars.keys()}")
+    params = {}
+    for k, v in entry_vars.items():
+        if k == "path_type":
+            params[k] = convert_legacy_to_fixed_id(v.get(), path_type_map, lang)
+            # Forcer conventional pour modes 2, 4, 5 si alternate est détecté
+            if mode in ["2", "4", "5"] and params[k] == "alternate":
+                params[k] = "conventional"
+                print(f"Débogage: Mode {mode} - path_type 'alternate' non autorisé, forcé à 'conventional'")
+        elif k == "drilling_type":
+            params[k] = convert_legacy_to_fixed_id(v.get(), drilling_type_map, lang)
+        elif k == "corner_type":
+            params[k] = convert_legacy_to_fixed_id(v.get(), corner_type_map, lang)
+        elif k == "thread_type":
+            params[k] = convert_legacy_to_fixed_id(v.get(), thread_type_map, lang)
+        else:
+            try:
+                params[k] = float(v.get()) if k not in ["path_type", "drilling_type", "corner_type", "thread_type"] else v.get()
+            except ValueError:
+                params[k] = v.get()
 
-    save_config(config)
-    # ... (reste de la fonction inchangé)
+    if mode == "1":
+        config["surfacing"] = params
+    elif mode == "2":
+        config["contour_drilling"] = params
+        config["contour_drilling"]["is_blind_hole"] = params["drilling_type"] == "blind"
+    elif mode == "6":
+        config["threading"] = params
+    elif mode == "3":
+        config["matrix_drilling"] = params
+    elif mode == "4":
+        config["corner_radius"] = params
+    elif mode == "5":
+        config["oblong_hole"] = params
 
     save_config(config)
     try:
@@ -471,7 +503,7 @@ def save_and_generate():
         if os.path.exists(main_script_path):
             subprocess.run(["python", main_script_path], check=True, cwd=os.path.dirname(__file__))
             project_name = project_name_var.get()
-            gcode_pattern = os.path.join(os.path.dirname(__file__), f"NC\\{mode}_{project_name}_*.nc")
+            gcode_pattern = os.path.join(os.path.dirname(__file__), f"NC/{mode}_{project_name}_*.nc")
             gcode_files = glob.glob(gcode_pattern)
             if gcode_files:
                 latest_file = max(gcode_files, key=os.path.getmtime)
@@ -557,50 +589,60 @@ mode_var = tk.StringVar(value=config.get("last_operation", "1"))
 project_name_var = tk.StringVar(value=config.get("project_name", "test"))
 machine_var = tk.StringVar(value=config.get("machine", "CNC_450x800"))
 
+# Frame pour les champs généraux
+general_frame = ttk.LabelFrame(
+    root,
+    text=translations["translations"][language_var.get()].get("general_settings", "General Settings"),
+    style="TFrame"
+)
+general_frame.grid(row=0, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+general_frame.grid_columnconfigure(1, minsize=250)
+
 # Sélection de la langue
-language_label = ttk.Label(root, text=translations["translations"][language_var.get()]["language_label"])
-language_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-language_combo = ttk.Combobox(root, values=list(language_display_names.values()))
-language_combo.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+language_label = ttk.Label(general_frame, text=translations["translations"][language_var.get()]["language_label"], style="TLabel")
+language_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
+language_combo = ttk.Combobox(general_frame, values=list(language_display_names.values()), state="readonly", style="TCombobox", width=30)
+language_combo.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 language_combo.set(language_display_names.get(language_var.get(), "Français"))
 language_combo.bind("<<ComboboxSelected>>", on_language_select)
 
 # Mode sélection
-mode_label = ttk.Label(root, text=translations["translations"][language_var.get()]["select_mode"])
-mode_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
-combo = ttk.Combobox(root, values=[name for _, name in mode_options[language_var.get()]], style="TCombobox")
-combo.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+mode_label = ttk.Label(general_frame, text=translations["translations"][language_var.get()]["select_mode"], style="TLabel")
+mode_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
+combo = ttk.Combobox(general_frame, values=[name for _, name in mode_options[language_var.get()]], state="readonly", style="TCombobox", width=30)
+combo.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 initial_mode = next((name for id, name in mode_options[language_var.get()] if id == mode_var.get()), mode_options[language_var.get()][0][1])
 combo.set(initial_mode)
 combo.bind("<<ComboboxSelected>>", on_mode_select)
 
 # Champs projet et machine
-project_label = ttk.Label(root, text=translations["translations"][language_var.get()]["project_name"])
-project_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
-ttk.Entry(root, textvariable=project_name_var).grid(row=2, column=1, padx=5, pady=5, sticky="w")
-machine_label = ttk.Label(root, text=translations["translations"][language_var.get()]["machine"])
-machine_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
-ttk.Entry(root, textvariable=machine_var).grid(row=3, column=1, padx=5, pady=5, sticky="w")
+project_label = ttk.Label(general_frame, text=translations["translations"][language_var.get()]["project_name"], style="TLabel")
+project_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
+ttk.Entry(general_frame, textvariable=project_name_var, style="TEntry", width=30).grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+machine_label = ttk.Label(general_frame, text=translations["translations"][language_var.get()]["machine"], style="TLabel")
+machine_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
+ttk.Entry(general_frame, textvariable=machine_var, style="TEntry", width=30).grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 
 # Frame pour les champs contextuels
 frame = ttk.Frame(root, style="TFrame")
-frame.grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky="nsw")
+frame.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+frame.grid_columnconfigure(1, minsize=250)
 
 # Label pour l'image
 image_label = tk.Label(root, borderwidth=2, relief="groove")
-image_label.grid(row=0, column=2, rowspan=5, padx=5, pady=5, sticky="nsew")
+image_label.grid(row=0, column=2, rowspan=2, padx=5, pady=5, sticky="nsew")
 
 # Bouton de génération
 generate_button = ttk.Button(root, text=translations["translations"][language_var.get()]["generate_button"], command=save_and_generate)
-generate_button.grid(row=5, column=0, columnspan=3, pady=10)
+generate_button.grid(row=2, column=0, columnspan=3, pady=10)
+
+# Configurer la grille
+root.grid_columnconfigure(0, minsize=150, weight=1)
+root.grid_columnconfigure(1, minsize=150, weight=1)
+root.grid_columnconfigure(2, weight=1)
+root.grid_rowconfigure(1, weight=1)
 
 # Initialisation
 update_fields()
-
-# Configurer la grille
-root.grid_columnconfigure(0, weight=1)
-root.grid_columnconfigure(1, weight=1)
-root.grid_columnconfigure(2, weight=1)
-root.grid_rowconfigure(4, weight=1)
 
 root.mainloop()

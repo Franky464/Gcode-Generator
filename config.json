@@ -1,6 +1,6 @@
 {
-    "last_operation": "2",
-    "project_name": "CDR_20x10",
+    "last_operation": "6",
+    "project_name": "THR_20x10",
     "machine": "CNC_450x800",
     "surfacing": {
         "start_x": 10.0,
@@ -15,7 +15,7 @@
         "depth_per_pass": 4.0,
         "feed_rate": 1100.0,
         "spindle_speed": 1000.0,
-        "path_type": "Altern\u00e9"
+        "path_type": "alternate"
     },
     "contour_drilling": {
         "start_x": 0.0,
@@ -28,8 +28,8 @@
         "depth_per_pass": 10.0,
         "feed_rate": 1800.0,
         "spindle_speed": 1000.0,
-        "path_type": "Opposition",
-        "drilling_type": "Contour",
+        "path_type": "conventional",
+        "drilling_type": "outer",
         "overlap_percent": 50.0,
         "is_blind_hole": false
     },
@@ -41,7 +41,7 @@
         "length_y": 100.0,
         "width": 20.0,
         "tool_diameter": 10.0,
-        "path_type": "Opposition",
+        "path_type": "climb",
         "total_depth": 2.0,
         "depth_per_pass": 0.5,
         "feed_rate": 1800.0,
@@ -56,8 +56,8 @@
         "depth_per_pass": 0.5,
         "feed_rate": 1800.0,
         "spindle_speed": 1000.0,
-        "path_type": "Avalant",
-        "corner_type": "Arri\u00e8re Gauche (ARG)"
+        "path_type": "climb",
+        "corner_type": "rear_left"
     },
     "matrix_drilling": {
         "start_x": 10.0,
@@ -81,14 +81,14 @@
         "tool_diameter": 18.0,
         "hole_diameter": 40.0,
         "total_depth": 2.5,
-        "depth_per_pass": 2.5,
+        "depth_per_pass": 1.0,
         "feed_rate": 1800.0,
         "spindle_speed": 1000.0,
-        "path_type": "Droite",
-        "thread_type": "Ecrou (Interne)",
+        "path_type": "right",
+        "thread_type": "screw_external",
         "overlap_percent": 50.0,
         "thread_pitch": 5.0,
-        "thread_number": 9.0
+        "thread_number": 4.0
     },
     "language": "fr"
 }
