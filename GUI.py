@@ -35,11 +35,10 @@ def load_translations():
 def load_config():
     config_path = os.path.join(os.path.dirname(__file__), "config.json")
     translations = load_translations()
-    valid_languages = translations["languages"]  # Liste des langues valides (fr, en, de, es)
+    valid_languages = translations["languages"]
     if os.path.exists(config_path):
         with open(config_path, "r") as f:
             config = json.load(f)
-            # Vérifier si la langue est valide, sinon utiliser 'fr' par défaut
             if config.get("language", "fr") not in valid_languages:
                 config["language"] = "fr"
             return config
@@ -47,7 +46,7 @@ def load_config():
         "project_name": "test",
         "machine": "CNC_450x800",
         "last_operation": "1",
-        "language": "fr",  # Langue par défaut
+        "language": "fr",
         "threading": {}
     }
 
@@ -56,7 +55,7 @@ def save_config(config):
     with open(config_path, "w") as f:
         json.dump(config, f, indent=4)
 
-def generate_image_filename(mode, path_type, corner_type=None, is_blind_hole=None, x_coord=None, y_coord=None, thread_type=None):
+def generate_image_filename(mode, path_type, corner_type=None, drilling_type=None, x_coord=None, y_coord=None, thread_type=None):
     path_type_map = {
         "Opposition": 1, "Avalant": 2, "Alterné": 3, "Droite": 1, "Gauche": 2,
         "Conventional": 1, "Climb": 2, "Alternate": 3, "Right": 1, "Left": 2,
@@ -75,6 +74,12 @@ def generate_image_filename(mode, path_type, corner_type=None, is_blind_hole=Non
         "Mutter (Innen)": 1, "Schraube (Außen)": 2,
         "Tuerca (Interna)": 1, "Tornillo (Externa)": 2
     }
+    drilling_type_map = {
+        "Blind": 2, "Contour": 1, "Outer": 3,
+        "Trou borgne": 2, "Trou traversant": 1, "Diamètre extérieur": 3,
+        "Blindloch": 2, "Durchgangsloch": 1, "Außendurchmesser": 3,
+        "Agujero ciego": 2, "Agujero pasante": 1, "Diámetro exterior": 3
+    }
     
     filename = f"images\mode{mode}"
     if mode == "1":
@@ -85,18 +90,9 @@ def generate_image_filename(mode, path_type, corner_type=None, is_blind_hole=Non
         elif path_type in ["Alterné", "Alternate", "Abwechselnd", "Alternado"]:
             filename += "30"
     elif mode == "2":
-        if path_type in ["Opposition", "Conventional", "Gegenlauffräsen", "Convencional"]:
-            filename += "1"
-            if is_blind_hole in ["Non", "No", "Nein", "No"]:
-                filename += "1"
-            elif is_blind_hole in ["Oui", "Yes", "Ja", "Sí"]:
-                filename += "2"
-        elif path_type in ["Avalant", "Climb", "Gleichlauffräsen", "Ascendente"]:
-            filename += "2"
-            if is_blind_hole in ["Non", "No", "Nein", "No"]:
-                filename += "1"
-            elif is_blind_hole in ["Oui", "Yes", "Ja", "Sí"]:
-                filename += "2"
+        path_index = path_type_map.get(path_type, 1)
+        drilling_index = drilling_type_map.get(drilling_type, 1)
+        filename += f"{path_index}{drilling_index}"
     elif mode == "6":
         path_index = path_type_map.get(path_type, 1)
         thread_index = thread_type_map.get(thread_type, 1)
@@ -152,9 +148,9 @@ def update_image():
             filename = generate_image_filename(selected_mode_id, path_type)
         elif selected_mode_id == "2":
             path_type = entry_vars["path_type"].get()
-            is_blind_hole = entry_vars["is_blind_hole"].get()
-            print(f"For mode 2 - path_type: {path_type}, is_blind_hole: {is_blind_hole}")
-            filename = generate_image_filename(selected_mode_id, path_type, is_blind_hole=is_blind_hole)
+            drilling_type = entry_vars["drilling_type"].get()
+            print(f"For mode 2 - path_type: {path_type}, drilling_type: {drilling_type}")
+            filename = generate_image_filename(selected_mode_id, path_type, drilling_type=drilling_type)
         elif selected_mode_id == "6":
             path_type = entry_vars["path_type"].get()
             thread_type = entry_vars["thread_type"].get()
@@ -266,7 +262,7 @@ def update_fields(event=None):
             ("feed_rate", "feed_rate", 1800),
             ("spindle_speed", "spindle_speed", 24000),
             ("path_type", "path_type", "Opposition"),
-            ("is_blind_hole", "is_blind_hole", "False"),
+            ("drilling_type", "drilling_type", "Contour"),
             ("overlap_percent", "overlap_percent", 50.0)
         ],
         "3": [
@@ -274,8 +270,6 @@ def update_fields(event=None):
             ("start_y", "start_y", 0.0),
             ("start_z", "start_z", 0.0),
             ("clearance_height", "clearance_height", 5.0),
-            ("tool_diameter", "tool_diameter", 10.0),
-            ("hole_diameter", "hole_diameter", 10.0),
             ("spacing_x", "spacing_x", 20.0),
             ("spacing_y", "spacing_y", 20.0),
             ("num_rows", "num_rows", 5),
@@ -350,10 +344,9 @@ def update_fields(event=None):
             cb = ttk.Combobox(frame, values=options, textvariable=var)
             cb.grid(row=i+1, column=1, padx=5, pady=2, sticky="ew")
             cb.bind("<<ComboboxSelected>>", lambda e: update_image())
-        elif key == "is_blind_hole":
-            options = translations["translations"][lang]["blind_hole"]
-            display_value = options[0] if str(var_value).lower() in ("true", "1") else options[1]
-            var = tk.StringVar(value=display_value)
+        elif key == "drilling_type":
+            options = translations["translations"][lang]["drilling_types"]
+            var = tk.StringVar(value=var_value if var_value in options else options[0])
             cb = ttk.Combobox(frame, values=options, textvariable=var)
             cb.grid(row=i+1, column=1, padx=5, pady=2, sticky="ew")
             cb.bind("<<ComboboxSelected>>", lambda e: update_image())
@@ -387,9 +380,8 @@ def on_mode_select(event):
     mode_var.set(mode_id)
     print(f"Mode sélectionné dans on_mode_select : {mode_id}")
 
-    # Mise à jour du project_name avec l'acronyme
     current_project_name = project_name_var.get()
-    acronym = mode_acronyms.get(mode_id, "TST")  # Par défaut "TST" si mode_id non trouvé
+    acronym = mode_acronyms.get(mode_id, "TST")
     if len(current_project_name) >= 3:
         new_project_name = acronym + current_project_name[3:]
     else:
@@ -400,11 +392,10 @@ def on_mode_select(event):
 
 def on_language_select(event):
     config = load_config()
-    # Convertir le nom affiché (Français, English, Deutsch, Español) en code (fr, en, de, es)
     selected_display_name = language_combo.get()
     lang_code = next((code for code, name in language_display_names.items() if name == selected_display_name), "fr")
     config["language"] = lang_code
-    language_var.set(lang_code)  # Mettre à jour language_var avec le code
+    language_var.set(lang_code)
     save_config(config)
     update_ui_language()
 
@@ -413,7 +404,7 @@ def update_ui_language():
     lang = language_var.get()
     
     root.title(translations["translations"][lang]["title"])
-    language_label.configure(text=translations["translations"][lang]["language_label"])  # Label dynamique
+    language_label.configure(text=translations["translations"][lang]["language_label"])
     mode_label.configure(text=translations["translations"][lang]["select_mode"])
     project_label.configure(text=translations["translations"][lang]["project_name"])
     machine_label.configure(text=translations["translations"][lang]["machine"])
@@ -425,6 +416,22 @@ def update_ui_language():
     combo.set(current_mode_name)
     
     update_fields()
+
+# Ajouter ce mappage au début de GUI.py, après les autres mappages
+drilling_type_map = {
+    "Trou borgne": "Blind",
+    "Trou traversant": "Contour",
+    "Diamètre extérieur": "Outer",
+    "Blind": "Blind",
+    "Contour": "Contour",
+    "Outer": "Outer",
+    "Blindloch": "Blind",
+    "Durchgangsloch": "Contour",
+    "Außendurchmesser": "Outer",
+    "Agujero ciego": "Blind",
+    "Agujero pasante": "Contour",
+    "Diámetro exterior": "Outer"
+}
 
 def save_and_generate():
     config = load_config()
@@ -442,10 +449,10 @@ def save_and_generate():
         config["surfacing"] = {k: float(v.get()) if k not in ["path_type"] else v.get() for k, v in entry_vars.items()}
     elif mode == "2":
         config["contour_drilling"] = {
-            k: float(v.get()) if k not in ["path_type", "is_blind_hole"] else 
-            translations["translations"][lang]["blind_hole"][0] == v.get() if k == "is_blind_hole" else v.get() 
+            k: float(v.get()) if k not in ["path_type", "drilling_type", "is_blind_hole"] else drilling_type_map.get(v.get(), v.get()) if k == "drilling_type" else v.get()
             for k, v in entry_vars.items()
         }
+        config["contour_drilling"]["is_blind_hole"] = config["contour_drilling"]["drilling_type"] == "Blind"
     elif mode == "6":
         config["threading"] = {k: float(v.get()) if k not in ["path_type", "thread_type"] else v.get() for k, v in entry_vars.items()}
     elif mode == "3":
@@ -456,17 +463,17 @@ def save_and_generate():
         config["oblong_hole"] = {k: float(v.get()) if k not in ["path_type"] else v.get() for k, v in entry_vars.items()}
 
     save_config(config)
+    # ... (reste de la fonction inchangé)
+
+    save_config(config)
     try:
         main_script_path = os.path.join(os.path.dirname(__file__), "main_tkinter.py")
         if os.path.exists(main_script_path):
-            # Exécuter main_tkinter.py
             subprocess.run(["python", main_script_path], check=True, cwd=os.path.dirname(__file__))
-            # Chercher le fichier .nc le plus récent commençant par project_name
             project_name = project_name_var.get()
-            gcode_pattern = os.path.join(os.path.dirname(__file__), f"NC\{mode}_{project_name}_*.nc")
+            gcode_pattern = os.path.join(os.path.dirname(__file__), f"NC\\{mode}_{project_name}_*.nc")
             gcode_files = glob.glob(gcode_pattern)
             if gcode_files:
-                # Trouver le fichier le plus récent
                 latest_file = max(gcode_files, key=os.path.getmtime)
                 gcode_filename = os.path.basename(latest_file)
                 messagebox.showinfo(
@@ -506,7 +513,7 @@ root.geometry("800x600")
 # Style
 style = ttk.Style()
 style.configure("TFrame", borderwidth=2, relief="groove")
-style.configure("TLabel", borderwidth=1, relief="solid")
+style.configure("TLabel", borderwidth=1, relief="flat")
 style.configure("TEntry", borderwidth=1, relief="solid")
 style.configure("TCombobox", borderwidth=1, relief="solid")
 
@@ -516,7 +523,7 @@ mode_options = {
     "fr": [
         ("1", "Surfaçage"),
         ("2", "Perçages par détourage"),
-        ("3", "Perçages verticaux (matrice)"),
+        ("3", "Matrice perçages"),
         ("4", "Rayon sur 90°"),
         ("5", "Trou oblong"),
         ("6", "Filetage")
@@ -555,7 +562,7 @@ language_label = ttk.Label(root, text=translations["translations"][language_var.
 language_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 language_combo = ttk.Combobox(root, values=list(language_display_names.values()))
 language_combo.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-language_combo.set(language_display_names.get(language_var.get(), "Français"))  # Afficher le nom de la langue
+language_combo.set(language_display_names.get(language_var.get(), "Français"))
 language_combo.bind("<<ComboboxSelected>>", on_language_select)
 
 # Mode sélection

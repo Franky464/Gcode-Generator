@@ -16,11 +16,6 @@ def save_config(config):
     with open("config.json", "w") as f:
         json.dump(config, f, indent=4)
 
-def save_config(config):
-    """Sauvegarde les paramètres dans config.json."""
-    with open("config.json", "w") as f:
-        json.dump(config, f, indent=4)
-
 def generate_header(project_name, machine_name, stock_x, stock_y, stock_z):
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     header = f"""; NC file from Picture_CNC
@@ -28,7 +23,6 @@ def generate_header(project_name, machine_name, stock_x, stock_y, stock_z):
 ; {current_time}
 ; {machine_name}
 ; [{stock_x:.3f}, {stock_y:.3f}, {stock_z:.3f}]
-
 G21
 G90
 M3 S1000
@@ -37,25 +31,97 @@ G04 P5
     return header
 
 def calculate_stock_dimensions(operations):
-    min_x, min_y, min_z = float('inf'), float('inf'), float('inf')
-    max_x, max_y, max_z = float('-inf'), float('-inf'), float('-inf')
+    # Charger la configuration pour accéder aux paramètres spécifiques
+    config = load_config()
+    operation = config.get("last_operation", "1")
 
-    for op in operations:
-        _, start_x, start_y, start_z, current_z, end_x, end_y, clearance_height = op
-        min_x = min(min_x, start_x)
-        min_y = min(min_y, start_y)
-        min_z = min(min_z, current_z)
-        max_x = max(max_x, end_x)
-        max_y = max(max_y, end_y)
-        max_z = max(max_z, clearance_height)
+    # Mode 1 : Surfaçage
+    if operation == "1":
+        defaults = config.get("surfacing", {})
+        width_x = defaults.get("width_x", 100.0)
+        length_y = defaults.get("length_y", 100.0)
+        tool_diameter = defaults.get("tool_diameter", 10.0)
+        total_depth = defaults.get("total_depth", 1.0)
+        clearance_height = defaults.get("clearance_height", 5.0)
+        stock_x = width_x + tool_diameter
+        stock_y = length_y + tool_diameter
+        stock_z = total_depth + clearance_height
+        return stock_x, stock_y, stock_z
 
-    if min_x == float('inf'):
-        return 0, 0, 0
+    # Mode 2 : Perçages par détourage
+    elif operation == "2":
+        defaults = config.get("contour_drilling", {})
+        hole_diameter = defaults.get("hole_diameter", 30.0)
+        tool_diameter = defaults.get("tool_diameter", 10.0)
+        total_depth = defaults.get("total_depth", 2.0)
+        clearance_height = defaults.get("clearance_height", 5.0)
+        drilling_type = defaults.get("drilling_type", "Contour" if not defaults.get("is_blind_hole", False) else "Blind")
 
-    stock_x = max_x - min_x
-    stock_y = max_y - min_y
-    stock_z = max_z - min_z
-    return stock_x, stock_y, stock_z
+        if drilling_type == "Outer":
+            # Usinage extérieur : chemin à hole_radius + tool_radius
+            stock_x = hole_diameter + 2 * tool_diameter
+            stock_y = hole_diameter + 2 * tool_diameter
+        else:
+            # Blind ou Contour : usinage intérieur
+            stock_x = hole_diameter + tool_diameter
+            stock_y = hole_diameter + tool_diameter
+        stock_z = total_depth + clearance_height
+        return stock_x, stock_y, stock_z
+
+    # Mode 3 : Perçages verticaux (matrice)
+    elif operation == "3":
+        defaults = config.get("matrix_drilling", {})
+        num_cols = int(float(defaults.get("num_cols", 1)))
+        num_rows = int(float(defaults.get("num_rows", 1)))
+        spacing_x = float(defaults.get("spacing_x", 10.0))
+        spacing_y = float(defaults.get("spacing_y", 10.0))
+        total_depth = float(defaults.get("total_depth", 2.0))
+        clearance_height = float(defaults.get("clearance_height", 5.0))
+        stock_x = (num_cols - 1) * spacing_x if num_cols > 1 else 10.0  # Valeur minimale si un seul trou
+        stock_y = (num_rows - 1) * spacing_y if num_rows > 1 else 10.0  # Valeur minimale si un seul trou
+        stock_z = total_depth + clearance_height
+        return stock_x, stock_y, stock_z
+
+    # Mode 4 : Rayon sur 90°
+    elif operation == "4":
+        defaults = config.get("corner_radius", {})
+        radius = defaults.get("radius", 10.0)
+        tool_diameter = defaults.get("tool_diameter", 10.0)
+        total_depth = defaults.get("total_depth", 2.0)
+        clearance_height = defaults.get("clearance_height", 5.0)
+        arc_radius = radius + tool_diameter / 2
+        stock_x = 2 * arc_radius
+        stock_y = 2 * arc_radius
+        stock_z = total_depth + clearance_height
+        return stock_x, stock_y, stock_z
+
+    # Mode 5 : Trou oblong
+    elif operation == "5":
+        defaults = config.get("oblong_hole", {})
+        length_x = defaults.get("length_x", 20.0)
+        length_y = defaults.get("length_y", 20.0)
+        tool_diameter = defaults.get("tool_diameter", 5.0)
+        total_depth = defaults.get("total_depth", 2.0)
+        clearance_height = defaults.get("clearance_height", 5.0)
+        stock_x = length_x + tool_diameter
+        stock_y = length_y + tool_diameter
+        stock_z = total_depth + clearance_height
+        return stock_x, stock_y, stock_z
+
+    # Mode 6 : Filetage
+    elif operation == "6":
+        defaults = config.get("threading", {})
+        hole_diameter = defaults.get("hole_diameter", 30.0)
+        tool_diameter = defaults.get("tool_diameter", 10.0)
+        total_depth = defaults.get("total_depth", 2.0)
+        clearance_height = defaults.get("clearance_height", 5.0)
+        stock_x = hole_diameter + tool_diameter
+        stock_y = hole_diameter + tool_diameter
+        stock_z = total_depth + clearance_height
+        return stock_x, stock_y, stock_z
+
+    # Cas par défaut : retourner 0 si aucune opération valide
+    return 0, 0, 0
 
 def surfacing(config):
     defaults = config.get("surfacing", {})
@@ -77,10 +143,10 @@ def surfacing(config):
     path_type_map = {
         "1": "Opposition",
         "2": "Avalant",
-        "3": "Alternance",
+        "3": "Alterné",
         "Opposition": "1",
         "Avalant": "2",
-        "Alternance": "3"
+        "Alterné": "3"
     }
     path_type_code = path_type_map.get(path_type, path_type)  # Utilise la valeur brute si elle est déjà un label
     path_type_label = path_type_map.get(path_type_code, "Opposition")
@@ -162,7 +228,8 @@ def contour_drilling(config):
     feed_rate = defaults.get("feed_rate", 1800)
     spindle_speed = defaults.get("spindle_speed", 1000)
     path_type = {"Opposition": "Opposition", "Avalant": "Avalant"}.get(defaults.get("path_type", "Opposition"), "Opposition")
-    is_blind_hole = defaults.get("is_blind_hole", False)
+    drilling_type = defaults.get("drilling_type", "Contour")
+    is_blind_hole = drilling_type == "Blind"  # Forcer is_blind_hole à True pour drilling_type = "Blind"
     overlap_percent = defaults.get("overlap_percent", 50.0) if is_blind_hole else 0.0
 
     # Validation des paramètres
@@ -182,38 +249,46 @@ def contour_drilling(config):
     initial_y = start_y
 
     gcode = f"\n; Contour drilling operation\n"
-    gcode += f"; ({path_type}, {'trou borgne' if is_blind_hole else 'trou traversant'})"
-    gcode += f"\n; D={hole_diameter:.1f} H={total_depth:.1f} Bit={tool_diameter}"
-    gcode += f"\n; P={total_depth/depth_per_pass} x {depth_per_pass}mm"
-    gcode += f"\n; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
+    gcode += f"; ({path_type}, {drilling_type})\n"
+    gcode += f"; D={hole_diameter:.1f} H={total_depth:.1f} Bit={tool_diameter}\n"
+    gcode += f"; P={total_depth/depth_per_pass:.2f} x {depth_per_pass}mm\n"
+    gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
     gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
     gcode += f"G00 Z{clearance_height:.3f} f{feed_rate}\n"
     gcode += f"G00 X{initial_x:.3f} Y{initial_y:.3f}\n"
 
     hole_radius = hole_diameter / 2
     tool_radius = tool_diameter / 2
-    step_over = tool_diameter * (1 - overlap_percent / 100) if is_blind_hole else hole_radius
-    num_circles = int((hole_radius - tool_radius) / step_over) + 1 if is_blind_hole else 1
+    if drilling_type == "Outer":
+        circle_radius = hole_radius + tool_radius  # Chemin extérieur
+        num_circles = 1  # Un seul cercle pour Outer
+    else:  # Contour ou Blind
+        circle_radius = hole_radius - tool_radius  # Chemin intérieur
+        if is_blind_hole:
+            step_over = tool_diameter * (1 - overlap_percent / 100)
+            num_circles = int((hole_radius - tool_radius) / step_over) + 1
+        else:
+            num_circles = 1  # Un seul cercle pour Contour
 
     current_z = start_z
     for i in range(num_passes_z):
         current_z -= min(depth_per_pass, total_depth - i * depth_per_pass)
         gcode += f"; Pass {i+1} at Z={current_z:.3f}\n"
         for j in range(num_circles):
-            circle_radius = tool_radius + j * step_over if is_blind_hole else hole_radius - tool_radius
-            if circle_radius > hole_radius - tool_radius:
-                circle_radius = hole_radius - tool_radius
-            tangent_x = start_x + circle_radius 
+            current_radius = circle_radius - j * step_over if is_blind_hole else circle_radius
+            if is_blind_hole and current_radius < tool_radius:
+                current_radius = tool_radius  # Limiter au rayon minimum de l'outil
+            tangent_x = start_x + current_radius
             gcode += f"G00 X{tangent_x:.3f} Y{initial_y:.3f}\n"
             gcode += f"G01 Z{current_z:.3f}\n"
             if path_type == "Opposition":
-                gcode += f"G02 X{tangent_x:.3f} Y{initial_y:.3f} I{-circle_radius:.3f} J0.000\n"
+                gcode += f"G02 X{tangent_x:.3f} Y{initial_y:.3f} I{-current_radius:.3f} J0.000\n"
             else:
-                gcode += f"G03 X{tangent_x:.3f} Y{initial_y:.3f} I{-circle_radius:.3f} J0.000\n"
+                gcode += f"G03 X{tangent_x:.3f} Y{initial_y:.3f} I{-current_radius:.3f} J0.000\n"
 
     gcode += f"G00 Z{clearance_height:.3f}\n"
     gcode += f"G00 X{initial_x:.3f} Y{initial_y:.3f}\n"
-    
+
     return gcode, start_x, start_y, start_z, current_z, start_x + hole_diameter, start_y + hole_diameter, clearance_height
 
 def threading(config):
@@ -256,47 +331,43 @@ def threading(config):
     # Bloc conditionnel pour Ecrou (Interne) ou Vis (Externe)
     if thread_type == "Ecrou (Interne)":
         # Bloc actuel pour filetage interne (Ecrou)
-        base_x = hole_radius - depth_per_pass - tool_radius - total_depth # Formule du commentaire pour première passe
+        base_x = hole_radius - depth_per_pass - tool_radius - total_depth  # Formule du commentaire pour première passe
         i_value = -base_x  # Comme dans l'exemple
 
-        gcode = f"\n; Threading operation"
-        gcode += f"\n;(Ecrou, {defaults.get('path_type', 'Left')})"
-        gcode += f"\n; D={hole_diameter:.1f} H={thread_number*thread_pitch:.1f} P={thread_pitch:.1f}"
-        gcode += f"\n; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
+        gcode = f"\n; Threading operation\n"
+        gcode += f";(Ecrou, {defaults.get('path_type', 'Left')})\n"
+        gcode += f"; D={hole_diameter:.1f} H={thread_number*thread_pitch:.1f} P={thread_pitch:.1f}\n"
+        gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
         gcode += f"G00 Z{clearance_height} S{spindle_speed:.1f}\n"
         gcode += f"G00 X{start_x:.3f} Y{start_y:.3f} Z{start_z:.3f} f{feed_rate} S{spindle_speed:.1f}\n"
 
         for pass_num in range(1, num_radial_passes + 1):
             current_x = base_x + (pass_num + 1) * depth_per_pass
             gcode += f"G01 X{start_x + current_x:.3f} Y{start_y:.3f}\n"  # Assumer centre à (start_x, start_y)
-
             for turn in range(1, thread_number + 1):
                 next_z = start_z - thread_pitch * turn  # Z absolu depuis start_z
                 gcode += f"{path_type} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000 Z{next_z:.3f}\n"
-
             gcode += f"G00 X{start_x:.3f} Y{start_y:.3f}\n"  # Retour au centre
             if pass_num < num_radial_passes:
                 gcode += f"G00 Z{start_z:.3f}\n\n"  # Reposition pour prochaine passe
     else:  # Vis (Externe)
         # Bloc alternatif pour filetage externe (Vis) - Copie initiale pour validation
-        base_x = hole_radius- depth_per_pass + tool_radius  # À ajuster pour Vis si nécessaire
-        i_value = -base_x # À ajuster pour Vis si nécessaire
+        base_x = hole_radius - depth_per_pass + tool_radius  # À ajuster pour Vis si nécessaire
+        i_value = -base_x  # À ajuster pour Vis si nécessaire
 
-        gcode = f"\n; Threading operation"
-        gcode += f"\n;(Vis, {defaults.get('path_type', 'Left')})"
-        gcode += f"\n; D={hole_diameter:.1f} H={thread_number*thread_pitch:.1f} P={thread_pitch:.1f}"
-        gcode += f"\n; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
+        gcode = f"\n; Threading operation\n"
+        gcode += f";(Vis, {defaults.get('path_type', 'Left')})\n"
+        gcode += f"; D={hole_diameter:.1f} H={thread_number*thread_pitch:.1f} P={thread_pitch:.1f}\n"
+        gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
         gcode += f"G00 Z{clearance_height} S{spindle_speed:.1f}\n"
         gcode += f"G00 X{start_x + hole_radius + tool_radius + total_depth:.3f} Y{start_y:.3f} Z{start_z:.3f} f{feed_rate}\n"
 
         for pass_num in range(1, num_radial_passes + 1):
             current_x = base_x - (pass_num) * depth_per_pass + depth_per_pass
             gcode += f"G01 X{start_x + current_x:.3f} Y{start_y:.3f}\n"  # Assumer centre à (start_x, start_y)
-
             for turn in range(1, thread_number + 1):
                 next_z = start_z - thread_pitch * turn  # Z absolu depuis start_z
                 gcode += f"{path_type} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000 Z{next_z:.3f}\n"
-
             gcode += f"G00 X{start_x + hole_radius + tool_radius + total_depth:.3f} Y{start_y:.3f}\n"  # Retour au centre
             if pass_num < num_radial_passes:
                 gcode += f"G00 Z{start_z:.3f}\n\n"  # Reposition pour prochaine passe
@@ -317,9 +388,9 @@ def matrix_drilling(config):
     start_y = defaults.get("start_y", 0.0)
     start_z = defaults.get("start_z", 0.0)
     num_cols = int(float(defaults.get("num_cols", 1)))  # Forcer conversion en int
-    step_x = float(defaults.get("step_x", 10.0))
+    spacing_x = float(defaults.get("spacing_x", 10.0))
     num_rows = int(float(defaults.get("num_rows", 1)))  # Forcer conversion en int
-    step_y = float(defaults.get("step_y", 10.0))
+    spacing_y = float(defaults.get("spacing_y", 10.0))
     clearance_height = float(defaults.get("clearance_height", 5.0))
     deburr_height = float(defaults.get("deburr_height", 2.0))
     total_depth = float(defaults.get("total_depth", 2.0))
@@ -336,24 +407,26 @@ def matrix_drilling(config):
         raise ValueError("La profondeur par passe ne peut pas dépasser la profondeur totale.")
     if num_cols < 1 or num_rows < 1:
         raise ValueError("Le nombre de perçages doit être au moins 1.")
-    if step_x < 0 or step_y < 0:
+    if spacing_x < 0 or spacing_y < 0:
         raise ValueError("Les pas sur X et Y doivent être positifs ou nuls.")
-    #print(f"Debug: num_cols={num_cols}, num_rows={num_rows}, step_x={step_x}, step_y={step_y}")  # Ligne de débogage
+
+    #print(f"Debug: num_cols={num_cols}, num_rows={num_rows}, spacing_x={spacing_x}, spacing_y={spacing_y}")  # Ligne de débogage
 
     num_passes_z = int(total_depth / depth_per_pass) + (1 if total_depth % depth_per_pass != 0 else 0)
-    end_x = start_x + (num_cols - 1) * step_x
-    end_y = start_y + (num_rows - 1) * step_y
+    end_x = start_x + (num_cols - 1) * spacing_x
+    end_y = start_y + (num_rows - 1) * spacing_y
 
-    gcode = f"\n; Matrix drilling operation ({num_cols}x{num_rows} holes, RAST strategy)"
-    gcode += f"\n; X,Y,Z = {start_x}, {start_y}, {start_z}"
-    gcode += f"\n; Matrix X x Y = {num_cols} x {num_rows}, H = {total_depth}\n\n"
+    gcode = f"\n; Matrix drilling RAST\n"
+    gcode += f"; {num_cols} x {num_rows} holes\n"
+    gcode += f"; Pas X= {spacing_x}, Pas Y= {spacing_y}\n"
+    gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}, H = {total_depth}\n\n"
     gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
     gcode += f"G00 Z{clearance_height:.3f} f{feed_rate}\n"
     gcode += f"G00 X{start_x:.3f} Y{start_y:.3f}\n"
 
     for j in range(num_rows):
-        current_y = start_y + j * step_y
-        x_positions = [start_x + i * step_x for i in range(num_cols)]
+        current_y = start_y + j * spacing_y
+        x_positions = [start_x + i * spacing_x for i in range(num_cols)]
         if j % 2 == 1:  # Inverse l'ordre pour les lignes impaires
             x_positions = x_positions[::-1]
         #print(f"Debug: Row {j+1}, Y={current_y}, X positions: {x_positions}")  # Ligne de débogage
@@ -439,7 +512,7 @@ def corner_radius(config):
         else:
             arc_cmd = f"G02 X{arc_radius:.3f} Y{arc_radius:.3f} I{arc_radius:.3f} J0.000"
             return_x = f"G00 X-{arc_radius:.3f}"
-            return_y = f"G00 Y-{arc_radius:.3f}"
+            return_y = f"G00 Y{arc_radius:.3f}"
 
     # Exécuter les passes
     for i in range(num_passes_z):
@@ -503,7 +576,7 @@ def oblong_hole(config):
         target_z = start_z - current_depth
         gcode += f"; Pass {i+1} at Z={target_z:.3f}\n"
         gcode += f"G90\n"
-        gcode += f"G00 X{start_x:.3f} Y{start_y:.3f} Z{start_z:.3f}\n"
+        gcode += f"G00 X{start_x:.3f} Y{start_y-half_width:.3f} Z{start_z:.3f}\n"
         gcode += f"G01 Z{target_z:.3f}\n"
         gcode += "G91\n"
 
@@ -586,7 +659,7 @@ def main():
             gcode += op
         gcode += "G90\nM5\nM30\n"
 
-        filename = f"NC\{operation}_{project_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.nc"
+        filename = f"NC\\{operation}_{project_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.nc"
         if not os.access(os.getcwd(), os.W_OK):
             raise PermissionError("Pas de permissions d'écriture dans le répertoire courant.")
         with open(filename, "w") as file:
