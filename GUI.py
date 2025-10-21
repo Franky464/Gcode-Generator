@@ -451,6 +451,16 @@ def update_ui_language():
     
     update_fields()
 
+def on_closing():
+    print("Débogage: Tentative de fermeture de GUI.py")
+    if messagebox.askokcancel("Quitter", "Voulez-vous quitter l'application ?"):
+        print("Débogage: Fermeture confirmée")
+        try:
+            root.destroy()
+            print("Débogage: root.destroy() exécuté")
+        except Exception as e:
+            print(f"Débogage: Erreur lors de root.destroy() : {str(e)}")
+            
 def save_and_generate():
     config = load_config()
     translations = load_translations()
@@ -508,10 +518,10 @@ def save_and_generate():
             if gcode_files:
                 latest_file = max(gcode_files, key=os.path.getmtime)
                 gcode_filename = os.path.basename(latest_file)
-                messagebox.showinfo(
-                    translations["translations"][lang]["success"],
-                    translations["translations"][lang]["success_with_file"].format(filename=gcode_filename)
-                )
+                #messagebox.showinfo(
+                #    translations["translations"][lang]["success"],
+                #    translations["translations"][lang]["success_with_file"].format(filename=gcode_filename)
+                #)
             else:
                 messagebox.showinfo(
                     translations["translations"][lang]["success"],

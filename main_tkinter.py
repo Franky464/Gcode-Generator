@@ -2,6 +2,11 @@ import sys
 import json
 import os
 from datetime import datetime
+# Imports au début du fichier (ajoutez si manquants)
+import subprocess
+import tkinter as tk
+from tkinter import messagebox
+
 
 # Mappage des identifiants fixes (identique à GUI.py pour cohérence)
 path_type_map = {
@@ -664,7 +669,7 @@ def oblong_hole(config):
     return gcode, start_x - half_length_x, start_y - half_length_y, start_z, start_z - total_depth, start_x + half_length_x, start_y + half_length_y, stock_z
 
 def main():
-    # Étape 1 : Récupérer les paramètres communs dans le JSON
+    # Étape 1 : Charger les paramètres
     config = load_config()
     project_name = config.get("project_name", "test")
     machine_name = config.get("machine", "CNC_450x800")
@@ -711,16 +716,67 @@ def main():
             gcode += op
         gcode += "G90\nM5\nM30\n"
 
-        filename = f"NC\\{operation}_{project_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.nc"
-        if not os.access(os.getcwd(), os.W_OK):
-            raise PermissionError("Pas de permissions d'écriture dans le répertoire courant.")
+        # Nettoyer project_name pour éviter les caractères non valides
+        invalid_chars = '<>:"/\\|?*'
+        for char in invalid_chars:
+            project_name = project_name.replace(char, '_')
+
+        # Définir le nom du fichier et créer le dossier NC
+        filename = f"NC/{operation}_{project_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.nc"
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+
+        # Vérifier les permissions d'écriture
+        if not os.access(os.path.dirname(filename), os.W_OK):
+            raise PermissionError(f"Pas de permissions d'écriture dans {os.path.dirname(filename)}")
+
+        # Écrire le fichier G-code
         with open(filename, "w") as file:
             file.write(gcode)
         print(f"G-code sauvegardé dans {filename}")
+
+        # Afficher messagebox
+        tk.Tk().withdraw()
+        tk.messagebox.showinfo("Confirmation", f"G-code sauvegardé dans\n{filename}")
+
+        # Utiliser des chemins absolus normalisés
+        abs_filename = os.path.normpath(os.path.abspath(filename))
+        abs_display_script = os.path.normpath(os.path.abspath("display_gcode_3d.py"))
+
+        # Vérifier l'existence des fichiers
+        if not os.path.exists(abs_filename):
+            raise FileNotFoundError(f"Fichier G-code non trouvé : {abs_filename}")
+        if not os.path.exists(abs_display_script):
+            raise FileNotFoundError(f"Script display_gcode_3d.py non trouvé : {abs_display_script}")
+
+        # Définir l'interpréteur Python de l'environnement virtuel
+        venv_python = os.path.normpath(os.path.join(os.path.dirname(__file__), "venv", "Scripts", "python.exe"))
+        if not os.path.exists(venv_python):
+            print(f"Débogage: Interpréteur de l'environnement virtuel non trouvé, utilisation de sys.executable : {sys.executable}")
+            venv_python = sys.executable
+
+        # Propager l'environnement virtuel
+        env = os.environ.copy()
+        venv_site_packages = os.path.normpath(os.path.join(os.path.dirname(__file__), "venv", "Lib", "site-packages"))
+        env["PYTHONPATH"] = venv_site_packages + (f";{env.get('PYTHONPATH', '')}" if env.get('PYTHONPATH') else "")
+        env["PATH"] = os.path.normpath(os.path.join(os.path.dirname(__file__), "venv", "Scripts")) + f";{env['PATH']}"
+
+        # Journaliser les informations
+        print(f"Débogage: Interpréteur utilisé : {venv_python}")
+        print(f"Débogage: Script de visualisation : {abs_display_script}")
+        print(f"Débogage: Fichier G-code : {abs_filename}")
+        print(f"Débogage: PYTHONPATH : {env['PYTHONPATH']}")
+        print(f"Débogage: PATH : {env['PATH']}")
+
+        # Lancer display_gcode_3d.py de manière non bloquante
+        subprocess.Popen([venv_python, abs_display_script, abs_filename], env=env)
+        print("Débogage: display_gcode_3d.py lancé en mode non bloquant")
+
     except Exception as e:
         print(f"Une erreur s'est produite : {str(e)}", file=sys.stderr)
         import traceback
         traceback.print_exc()
+        tk.Tk().withdraw()
+        tk.messagebox.showerror("Erreur", f"Échec de la génération : {str(e)}")
 
 if __name__ == "__main__":
     main()
