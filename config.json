@@ -1,6 +1,6 @@
 {
-    "last_operation": "5",
-    "project_name": "OBL_BOUCHON_DEBROUSAILLEUSE",
+    "last_operation": "4",
+    "project_name": "RDS_BOUCHON_DEBROUSAILLEUSE",
     "machine": "CNC_450x800",
     "surfacing": {
         "start_x": 0.0,
@@ -10,7 +10,7 @@
         "tool_diameter": 33.0,
         "overlap_percent": 50.0,
         "width_x": 50.0,
-        "length_y": 100.0,
+        "length_y": 80.0,
         "total_depth": 8.0,
         "depth_per_pass": 4.0,
         "feed_rate": 1100.0,
@@ -29,16 +29,16 @@
         "feed_rate": 1800.0,
         "spindle_speed": 1000.0,
         "path_type": "conventional",
-        "drilling_type": "blind",
+        "drilling_type": "outer",
         "overlap_percent": 50.0,
-        "is_blind_hole": true
+        "is_blind_hole": false
     },
     "oblong_hole": {
         "start_x": 0.0,
         "start_y": 0.0,
         "start_z": 0.0,
         "length_x": 0.0,
-        "length_y": 10.0,
+        "length_y": 0.0,
         "width": 20.0,
         "tool_diameter": 10.0,
         "path_type": "climb",
@@ -52,12 +52,12 @@
         "clearance_height": 5.0,
         "radius": 20.0,
         "tool_diameter": 10.0,
-        "total_depth": 2.0,
-        "depth_per_pass": 0.5,
+        "total_depth": 20.0,
+        "depth_per_pass": 5.0,
         "feed_rate": 1800.0,
         "spindle_speed": 1000.0,
-        "path_type": "climb",
-        "corner_type": "rear_right"
+        "path_type": "conventional",
+        "corner_type": "front_right"
     },
     "matrix_drilling": {
         "start_x": 10.0,
@@ -88,7 +88,7 @@
         "thread_type": "nut_internal",
         "overlap_percent": 50.0,
         "thread_pitch": 6.0,
-        "thread_number": 4.0
+        "thread_number": 12.0
     },
     "language": "fr"
 }

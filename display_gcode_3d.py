@@ -81,6 +81,13 @@ def interpolate_arc(start_x, start_y, start_z, end_x, end_y, end_z, i, j, direct
         if radius < 0.0001:
             print(f"Débogage: Rayon nul ou trop petit pour I={i}, J={j}")
             return [start_x, end_x], [start_y, end_y], [start_z, end_z]
+        
+        # Vérification optionnelle : distance end au centre
+        dist_end = np.sqrt((end_x - center_x)**2 + (end_y - center_y)**2)
+        if abs(dist_end - radius) > 0.01:
+            print(f"Débogage: Avertissement - End point hors cercle (dist={dist_end:.2f}, radius={radius:.2f}) - Fallback à ligne droite")
+            return [start_x, end_x], [start_y, end_y], [start_z, end_z]
+        
         start_angle = np.arctan2(start_y - center_y, start_x - center_x)
         end_angle = np.arctan2(end_y - center_y, end_x - center_x)
         if direction == 'G03':
@@ -103,7 +110,7 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
     """Trace le G-code en 3D dans une fenêtre Tkinter."""
     print("Débogage: Début de plot_gcode_3d")
     try:
-        fig = plt.figure(figsize=(8, 6))
+        fig = plt.figure(figsize=(10, 7))  # Ratio 10:7 pour matcher fenêtre 1000x700 sans distorsion
         try:
             ax = fig.add_subplot(111, projection='3d')
             print("Débogage: Axe 3D créé avec succès")
@@ -114,10 +121,14 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
         x, y, z = [], [], []
         colors = []
         current_x, current_y, current_z = 0.0, 0.0, 0.0
+        mode = 'absolute'  # G90 par défaut
+        # Initial point sans couleur (premier segment utilisera la couleur du premier mouvement)
         x.append(current_x)
         y.append(current_y)
         z.append(current_z)
-        colors.append('b')
+
+        # Amélioration regex pour plus de décimales et entiers
+        coord_pattern = r'([XYZEIJ])([-+]?\d*\.?\d+)'
 
         # Parsing du G-code
         for line in gcode.split('\n'):
@@ -128,36 +139,66 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
 
             try:
                 g_match = re.search(r'G(\d+)', line)
-                x_match = re.search(r'X([-]?\d+\.\d+)', line)
-                y_match = re.search(r'Y([-]?\d+\.\d+)', line)
-                z_match = re.search(r'Z([-]?\d+\.\d+)', line)
-                i_match = re.search(r'I([-]?\d+\.\d+)', line)
-                j_match = re.search(r'J([-]?\d+\.\d+)', line)
-
-                new_x = float(x_match.group(1)) if x_match else current_x
-                new_y = float(y_match.group(1)) if y_match else current_y
-                new_z = float(z_match.group(1)) if z_match else current_z
+                
+                # Extraction des coordonnées avec regex améliorée
+                coords = re.findall(coord_pattern, line)
+                coord_dict = {k: float(v) for k, v in coords}
+                
+                # Extraction I/J séparée si pas dans coords (mais inclus maintenant)
+                i_match = re.search(r'I([-+]?\d*\.?\d+)', line)
+                j_match = re.search(r'J([-+]?\d*\.?\d+)', line)
+                
+                # Calcul des nouvelles positions selon le mode
+                if mode == 'absolute':
+                    new_x = coord_dict.get('X', current_x)
+                    new_y = coord_dict.get('Y', current_y)
+                    new_z = coord_dict.get('Z', current_z)
+                else:  # relative
+                    new_x = current_x + coord_dict.get('X', 0.0)
+                    new_y = current_y + coord_dict.get('Y', 0.0)
+                    new_z = current_z + coord_dict.get('Z', 0.0)
 
                 if g_match:
-                    g_code = g_match.group(0)
+                    g_num = g_match.group(1)
+                    g_code = f'G{g_num.zfill(2)}'  # Normalise G0 → G00, G1 → G01, etc.
+                    
+                    if g_code == 'G90':
+                        mode = 'absolute'
+                        print(f"Débogage: Mode passé en absolu")
+                        continue
+                    elif g_code == 'G91':
+                        mode = 'relative'
+                        print(f"Débogage: Mode passé en relatif")
+                        continue
+                    
                     if g_code in ('G00', 'G01'):
+                        # Ajouter la couleur AVANT le point (pour le segment vers ce point)
+                        color_choice = 'y' if g_code == 'G00' else 'r'
+                        colors.append(color_choice)
                         x.append(new_x)
                         y.append(new_y)
                         z.append(new_z)
-                        colors.append('b' if g_code == 'G01' else 'r')
+                        # Log détaillé pour G00/G01 (avec ligne originale pour debug)
+                        print(f"Débogage: [{g_code}] (ligne: {line[:50]}...) vers ({new_x:.3f}, {new_y:.3f}, {new_z:.3f}) mode={mode} COULEUR={color_choice}")
+                        # Log spécifique pour mouvements Z-only (plunges/retracts)
+                        if 'X' not in coord_dict and 'Y' not in coord_dict and 'Z' in coord_dict:
+                            direction = "plunge" if new_z < current_z else "retract"
+                            print(f"Débogage: {direction.capitalize()} Z-only [{g_code}] en {color_choice}")
                         current_x, current_y, current_z = new_x, new_y, new_z
                     elif g_code in ('G02', 'G03'):
                         i = float(i_match.group(1)) if i_match else 0.0
                         j = float(j_match.group(1)) if j_match else 0.0
+                        print(f"Débogage: Arc G{g_code[-2:]} I={i} J={j} vers ({new_x:.3f}, {new_y:.3f}, {new_z:.3f}) mode={mode}")
                         x_arc, y_arc, z_arc = interpolate_arc(
                             current_x, current_y, current_z,
                             new_x, new_y, new_z,
                             i, j, direction=g_code, num_points=50
                         )
+                        # Ajouter les couleurs pour les segments d'arc AVANT d'étendre les points
+                        colors.extend(['b'] * (len(x_arc) - 1))
                         x.extend(x_arc[1:])
                         y.extend(y_arc[1:])
                         z.extend(z_arc[1:])
-                        colors.extend(['b'] * (len(x_arc) - 1))
                         current_x, current_y, current_z = new_x, new_y, new_z
                     else:
                         print(f"Débogage: Commande G-code ignorée : {g_code}")
@@ -165,21 +206,55 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
                 print(f"Débogage: Erreur lors du traitement de la ligne '{line}' : {str(e)}")
                 continue  # Ignorer les lignes problématiques
 
-        if len(x) > 1:
+        if len(x) > 1 and len(colors) > 0:
             x_min, x_max = min(x, default=0), max(x, default=stock_x)
             y_min, y_max = min(y, default=0), max(y, default=stock_y)
             z_min, z_max = min(z, default=0), max(z, default=stock_z)
             x_margin, y_margin, z_margin = stock_x * 0.1, stock_y * 0.1, stock_z * 0.1
-            ax.set_xlim(x_min - x_margin, x_max + x_margin)
-            ax.set_ylim(y_min - y_margin, y_max + y_margin)
-            ax.set_zlim(z_min - z_margin, z_max + z_margin)
 
+            # Calcul des spans pour les références (local)
+            span_x = x_max - x_min
+            span_y = y_max - y_min
+            max_span = max(span_x, span_y)
+
+            # Ajout des lignes de référence en vert (même longueur = max_span, ancrées aux min) AVANT le tracé
+            ref_color = 'g'  # Vert
+            ref_linewidth = 2
+            ax.plot([x_min, x_min + max_span], [y_min, y_min], [0, 0], color=ref_color, linewidth=ref_linewidth, label=f'Ref X/Y = {max_span:.1f} mm')
+            ax.plot([x_min, x_min], [y_min, y_min + max_span], [0, 0], color=ref_color, linewidth=ref_linewidth)
+            print(f"Débogage: Lignes de référence vertes ajoutées (longueur commune {max_span:.1f} mm sur X et Y depuis ({x_min}, {y_min}))")
+
+            # Étendre les limites pour inclure les lignes refs
+            x_max = max(x_max, x_min + max_span)
+            y_max = max(y_max, y_min + max_span)
+            x_margin, y_margin = (x_max - x_min) * 0.1, (y_max - y_min) * 0.1  # Recalcul marges
+
+            # Tracé du modèle
             for i in range(len(x) - 1):
                 color = colors[i]
                 if not (np.isnan(x[i]) or np.isnan(x[i+1]) or np.isnan(y[i]) or np.isnan(y[i+1]) or np.isnan(z[i]) or np.isnan(z[i+1])):
                     ax.plot([x[i], x[i+1]], [y[i], y[i+1]], [z[i], z[i+1]], color + '-', linewidth=1)
                 else:
                     print(f"Débogage: Segment ignoré à l'index {i} en raison de valeurs non valides")
+
+            ax.legend(loc='upper right')  # Légende pour les refs (optionnel)
+
+            # Limites finales (incluent refs)
+            ax.set_xlim(x_min - x_margin, x_max + x_margin)
+            ax.set_ylim(y_min - y_margin, y_max + y_margin)
+            ax.set_zlim(z_min - z_margin, z_max + z_margin)
+
+            # Correction échelle : Forcer aspect ratio égal pour X/Y (1:1), Z compressé (0.5 pour vue usinage)
+            # Compatible avec versions matplotlib <3.3 (ignore si non supporté)
+            try:
+                ax.set_box_aspect([2, 1, 0.5])  # Ajuste ici si besoin (ex. [1,1,1] pour cube parfait)
+                print(f"Débogage: Aspect ratio appliqué : [1, 1, 0.5] (X/Y égaux, Z compressé)")
+            except AttributeError:
+                print("Débogage: set_box_aspect non supporté (matplotlib <3.3) - Vue sans ratio forcé")
+                # Fallback : Ajuster dist pour une vue plus équilibrée
+                ax.dist = 10
+
+            fig.tight_layout(pad=1.0)  # Optimise layout pour fit rectangulaire sans étirement
         else:
             print("Débogage: Pas de données valides pour le tracé 3D")
             messagebox.showwarning("Avertissement", "Aucune donnée valide pour l'affichage 3D.")
@@ -201,7 +276,7 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
         canvas = FigureCanvasTkAgg(fig, master=canvas_widget)
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         try:
-            toolbar = NavigationToolbar2Tk(canvas, canvas_widget)  # Supprimer pack_toolbar
+            toolbar = NavigationToolbar2Tk(canvas, canvas_widget)
             toolbar.update()
             toolbar.pack(side=tk.TOP, fill=tk.X)
             canvas.draw()
@@ -302,14 +377,15 @@ def show_help():
         "- Pan : Clic central + glisser\n"
         "- Boutons de rotation : Utilisez 'Tourner X+', 'Tourner X-', 'Tourner Y+', 'Tourner Y-' pour tourner manuellement\n"
         "- Réinitialiser la vue : Menu Affichage > Réinitialiser la vue\n"
-        "- Barre d'outils : Utilisez les icônes en haut pour zoom, pan, rotation, etc."
+        "- Barre d'outils : Utilisez les icônes en haut pour zoom, pan, rotation, etc.\n"
+        "- Couleurs : Jaune (G00 rapide), Rouge (G01 linéaire), Bleu (G02/G03 arcs)"
     )
     messagebox.showinfo("Aide", help_text)
 
 def about():
     """Affiche les informations sur l'application."""
     print("Débogage: Affichage de la boîte À propos")
-    messagebox.showinfo("À propos", "Visualisation 3D du G-code\nVersion 1.0\nDéveloppé pour Gcode-Generator")
+    messagebox.showinfo("À propos", "Visualisation 3D du G-code\nVersion 1.9 (Réfs + Layout fixe)\nDéveloppé pour Gcode-Generator")
 
 def update_visualization():
     """Met à jour la visualisation 3D avec le dernier fichier G-code."""
@@ -341,20 +417,20 @@ def update_visualization():
 def on_closing():
     """Gère la fermeture de la fenêtre."""
     print("Débogage: Tentative de fermeture de display_gcode_3d.py")
-    if messagebox.askokcancel("Quitter", "Voulez-vous quitter la visualisation 3D ?"):
-        print("Débogage: Fermeture confirmée")
-        try:
+    #if messagebox.askokcancel("Quitter", "Voulez-vous quitter la visualisation 3D ?"):
+    print("Débogage: Fermeture confirmée")
+    try:
             plt.close('all')  # Fermer toutes les figures Matplotlib
             root.destroy()
             print("Débogage: root.destroy() exécuté")
-        except Exception as e:
+    except Exception as e:
             print(f"Débogage: Erreur lors de root.destroy() : {str(e)}")
             print(f"Débogage: Traceback : {traceback.format_exc()}")
 
 try:
     root = tk.Tk()
     root.title("Visualisation 3D du G-code")
-    root.geometry("1000x700")  # Taille augmentée pour afficher menus et barre d'outils
+    root.geometry("700x700")  # Taille augmentée pour afficher menus et barre d'outils
 
     # Créer la barre de menus
     menubar = tk.Menu(root)
