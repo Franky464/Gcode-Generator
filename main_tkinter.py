@@ -632,13 +632,14 @@ def oblong_hole(config):
         current_depth = min((i + 1) * depth_per_pass, total_depth)
         target_z = start_z - current_depth
         gcode += f"; Pass {i+1} at Z={target_z:.3f}\n"
-        gcode += f"G90\n"
-        gcode += f"G00 X{start_x:.3f} Y{start_y-half_width:.3f} Z{start_z:.3f}\n"
-        gcode += f"G01 Z{target_z:.3f}\n"
-        gcode += "G91\n"
 
-        gcode += f"G00 X{-half_length_x:.3f} Y{-half_length_y:.3f}\n"
+       
         if path_type == "conventional":
+            gcode += f"G90\n"
+            gcode += f"G00 X{start_x:.3f} Y{start_y-half_width:.3f} Z{start_z:.3f}\n"
+            gcode += f"G01 Z{target_z:.3f}\n"
+            gcode += "G91\n"
+            gcode += f"G00 X{-half_length_x:.3f} Y{-half_length_y:.3f}\n"
             gcode += f"G02 X{-half_width:.3f} Y{half_width:.3f} I0.000 J{half_width:.3f}\n"
             gcode += f"G01 X0.000 Y{length_y:.3f}\n"
             gcode += f"G02 X{half_width:.3f} Y{half_width:.3f} I{half_width:.3f} J0.000\n"
@@ -647,7 +648,13 @@ def oblong_hole(config):
             gcode += f"G01 X0.000 Y{-length_y:.3f}\n"
             gcode += f"G02 X{-half_width:.3f} Y{-half_width:.3f} I{-half_width:.3f} J0.000\n"
             gcode += f"G01 X{-length_x:.3f} Y0.000\n"
+            gcode += "G90\n"
         else:
+            gcode += f"G90\n"
+            gcode += f"G00 X{start_x-half_width:.3f} Y{start_y-(length_y):.3f} Z{start_z:.3f}\n"
+            gcode += f"G01 Z{target_z:.3f}\n"
+            gcode += "G91\n"
+            gcode += f"G00 X{-half_length_x:.3f} Y{half_length_y:.3f}\n"
             gcode += f"G03 X{half_width:.3f} Y{-half_width:.3f} I{half_width:.3f} J0.000\n"
             gcode += f"G01 X{length_x:.3f} Y0.000\n"
             gcode += f"G03 X{half_width:.3f} Y{half_width:.3f} I0.000 J{half_width:.3f}\n"
@@ -656,9 +663,9 @@ def oblong_hole(config):
             gcode += f"G01 X{-length_x:.3f} Y0.000\n"
             gcode += f"G03 X{-half_width:.3f} Y{-half_width:.3f} I0.000 J{-half_width:.3f}\n"
             gcode += f"G01 X0.000 Y{-length_y:.3f}\n"
+            gcode += "G90\n"
 
-        gcode += "G90\n"
-
+ 
     gcode += f"G00 X{start_x:.3f} Y{start_y:.3f} Z{start_z:.3f}\n"
     gcode += "G90\n"
 
