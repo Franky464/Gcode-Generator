@@ -550,7 +550,7 @@ config = load_config()
 language_var = tk.StringVar(value=config.get("language", "fr"))
 
 root.title(translations["translations"][language_var.get()]["title"])
-root.geometry("800x600")
+root.geometry("850x600+100+100")
 
 # Style
 style = ttk.Style()

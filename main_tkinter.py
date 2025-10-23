@@ -566,7 +566,7 @@ def corner_radius(config):
         else:
             arc_cmd = f"G02 X{arc_radius:.3f} Y{arc_radius:.3f} I{arc_radius:.3f} J0.000"
             return_x = f"G00 X-{arc_radius:.3f}"
-            return_y = f"G00 Y{arc_radius:.3f}"
+            return_y = f"G00 Y-{arc_radius:.3f}"
 
     # Exécuter les passes
     for i in range(num_passes_z):
