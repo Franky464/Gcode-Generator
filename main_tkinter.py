@@ -400,6 +400,7 @@ def threading(config):
             for turn in range(1, thread_number + 1):
                 next_z = start_z - thread_pitch * turn
                 gcode += f"{path_type_code} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000 Z{next_z:.3f}\n"
+            gcode += f"{path_type_code} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000\n"
             gcode += f"G00 X{start_x:.3f} Y{start_y:.3f}\n"
             if pass_num < num_radial_passes:
                 gcode += f"G00 Z{start_z:.3f}\n\n"
@@ -421,6 +422,7 @@ def threading(config):
             for turn in range(1, thread_number + 1):
                 next_z = start_z - thread_pitch * turn
                 gcode += f"{path_type_code} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000 Z{next_z:.3f}\n"
+            gcode += f"{path_type_code} X{start_x + current_x:.3f} Y{start_y:.3f} I{-start_x - current_x + start_x:.3f} J0.000\n"
             gcode += f"G00 X{start_x + hole_radius + tool_radius + total_depth:.3f} Y{start_y:.3f}\n"
             if pass_num < num_radial_passes:
                 gcode += f"G00 Z{start_z:.3f}\n\n"

@@ -1,11 +1,38 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 import json
 import os
 import subprocess
 from PIL import Image, ImageTk
 import glob
 import time
+import shutil  # Pour créer le dossier profiles si besoin
+from datetime import datetime  # Pour trier les profils par date
+
+# Classe ToolTip pour les info-bulles
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tip_window = None
+        self.widget.bind("<Enter>", self.show_tip)
+        self.widget.bind("<Leave>", self.hide_tip)
+
+    def show_tip(self, event=None):
+        if self.tip_window or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 20  # Position relative au widget
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 1
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)  # Pas de bordures
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT, background="#ffffe0", relief=tk.SOLID, borderwidth=1, font=("Arial", 8))
+        label.pack(ipadx=1)
+
+    def hide_tip(self, event=None):
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
 
 # Mappage des identifiants fixes
 path_type_map = {
@@ -105,6 +132,75 @@ def save_config(config):
     config_path = os.path.join(os.path.dirname(__file__), "config.json")
     with open(config_path, "w") as f:
         json.dump(config, f, indent=4)
+
+def get_profiles_dir():
+    """Retourne le chemin du dossier profiles, le crée si absent."""
+    profiles_dir = os.path.join(os.path.dirname(__file__), "profiles")
+    os.makedirs(profiles_dir, exist_ok=True)
+    return profiles_dir
+
+def save_profile(mode_id, profile_name, params, general_params=None):
+    """Sauvegarde un profil pour un mode donné."""
+    profiles_dir = get_profiles_dir()
+    filename = f"{mode_id}_{profile_name}.json"
+    filepath = os.path.join(profiles_dir, filename)
+    
+    profile_data = {
+        "mode": mode_id,
+        "name": profile_name,
+        "params": params,
+        "general": general_params or {},  # Optionnel : projet, machine
+        "saved_at": datetime.now().isoformat()
+    }
+    
+    with open(filepath, "w", encoding='utf-8') as f:
+        json.dump(profile_data, f, indent=4)
+    
+    print(f"Débogage: Profil sauvegardé : {filepath}")
+    messagebox.showinfo("Succès", f"Profil '{profile_name}' sauvegardé pour le mode {mode_id}.")
+
+def load_available_profiles(mode_id):
+    """Retourne une liste des noms de profils disponibles pour un mode, triés par date récente."""
+    profiles_dir = get_profiles_dir()
+    pattern = os.path.join(profiles_dir, f"{mode_id}_*.json")
+    files = glob.glob(pattern)
+    
+    profiles = []
+    for file in files:
+        with open(file, "r", encoding='utf-8') as f:
+            data = json.load(f)
+            profiles.append((data["name"], os.path.getmtime(file)))  # (nom, timestamp)
+    
+    # Trier par date descendante (plus récent en premier)
+    profiles.sort(key=lambda x: x[1], reverse=True)
+    return [name for name, _ in profiles]
+
+def load_profile(mode_id, profile_name):
+    """Charge un profil et retourne ses params + généraux."""
+    profiles_dir = get_profiles_dir()
+    filepath = os.path.join(profiles_dir, f"{mode_id}_{profile_name}.json")
+    
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Profil non trouvé : {profile_name}")
+    
+    with open(filepath, "r", encoding='utf-8') as f:
+        data = json.load(f)
+    
+    # Met à jour les vars globales pour l'UI
+    global project_name_var, machine_var, entry_vars
+    if data["general"]:
+        project_name_var.set(data["general"].get("project_name", project_name_var.get()))
+        machine_var.set(data["general"].get("machine", machine_var.get()))
+    
+    # Met à jour les champs du mode
+    for key, value in data["params"].items():
+        if key in entry_vars:
+            entry_vars[key].set(str(value))
+    
+    # Met à jour l'image et les champs
+    update_image()
+    print(f"Débogage: Profil chargé : {profile_name} pour mode {mode_id}")
+    messagebox.showinfo("Succès", f"Profil '{profile_name}' chargé pour le mode {mode_id}.")
 
 def generate_image_filename(mode, path_type, corner_type=None, drilling_type=None, x_coord=None, y_coord=None, thread_type=None):
     filename = f"images/mode{mode}"
@@ -355,6 +451,8 @@ def update_fields(event=None):
         var_value = params.get(key, str(default))
         label_text = translations["translations"][lang]["fields"].get(label_key, label_key)
         
+        tooltip_text = translations["translations"][lang]["tooltips"].get(label_key, f"Description pour {label_key}")
+        
         if key == "path_type":
             if selected_mode_id == "6":
                 options = [path_type_map[id][lang] for id in ["right", "left"]]
@@ -370,35 +468,48 @@ def update_fields(event=None):
             cb = ttk.Combobox(frame, values=options, textvariable=var, state="readonly", style="TCombobox", width=30)
             cb.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             cb.bind("<<ComboboxSelected>>", lambda e: update_image())
+            # Ajout de l'info-bulle sur le combobox
+            ToolTip(cb, tooltip_text)
         elif key == "corner_type":
             options = [corner_type_map[id][lang] for id in corner_type_map]
             var = tk.StringVar(value=corner_type_map.get(var_value, corner_type_map["front_left"]).get(lang, "Avant Gauche (AVG)"))
             cb = ttk.Combobox(frame, values=options, textvariable=var, state="readonly", style="TCombobox", width=30)
             cb.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             cb.bind("<<ComboboxSelected>>", lambda e: update_image())
+            # Ajout de l'info-bulle sur le combobox
+            ToolTip(cb, tooltip_text)
         elif key == "drilling_type":
             options = [drilling_type_map[id][lang] for id in drilling_type_map]
             var = tk.StringVar(value=drilling_type_map.get(var_value, drilling_type_map["contour"]).get(lang, "Trou traversant"))
             cb = ttk.Combobox(frame, values=options, textvariable=var, state="readonly", style="TCombobox", width=30)
             cb.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             cb.bind("<<ComboboxSelected>>", lambda e: update_image())
+            # Ajout de l'info-bulle sur le combobox
+            ToolTip(cb, tooltip_text)
         elif key == "thread_type":
             options = [thread_type_map[id][lang] for id in thread_type_map]
             var = tk.StringVar(value=thread_type_map.get(var_value, thread_type_map["nut_internal"]).get(lang, "Ecrou (Interne)"))
             cb = ttk.Combobox(frame, values=options, textvariable=var, state="readonly", style="TCombobox", width=30)
             cb.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             cb.bind("<<ComboboxSelected>>", lambda e: update_image())
+            # Ajout de l'info-bulle sur le combobox
+            ToolTip(cb, tooltip_text)
         else:
             var = tk.StringVar(value=str(var_value))
             entry = ttk.Entry(frame, textvariable=var, style="TEntry", width=30)
             entry.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             if key in ["length_x", "length_y"]:
                 entry.bind("<KeyRelease>", lambda e: update_image())
+            # Ajout de l'info-bulle sur l'entry
+            ToolTip(entry, tooltip_text)
         
         ttk.Label(frame, text=label_text, style="TLabel").grid(row=i, column=0, padx=5, pady=2, sticky="e")
         entry_vars[key] = var
 
     update_image()
+
+# ... (le reste du code reste inchangé, à partir de def clear_fields(): jusqu'à root.mainloop())
+# ... (le reste du code reste inchangé, à partir de def clear_fields(): jusqu'à root.mainloop())
 
 def clear_fields():
     for widget in frame.winfo_children():
@@ -543,6 +654,69 @@ def save_and_generate():
             translations["translations"][lang]["generic_error"].format(error=str(e))
         )
 
+# Fonctions pour les profils
+def on_save_profile():
+    mode_id = mode_var.get()
+    lang = language_var.get()
+    translations = load_translations()
+    profile_name = simpledialog.askstring("Sauvegarder Profil", "Nom du profil :")
+    if not profile_name:
+        return  # Annulé
+    
+    # Récupère les params actuels (comme dans save_and_generate)
+    params = {}
+    for k, v in entry_vars.items():
+        if k == "path_type":
+            params[k] = convert_legacy_to_fixed_id(v.get(), path_type_map, lang)
+            if mode_id in ["2", "4", "5"] and params[k] == "alternate":
+                params[k] = "conventional"
+        elif k == "drilling_type":
+            params[k] = convert_legacy_to_fixed_id(v.get(), drilling_type_map, lang)
+        elif k == "corner_type":
+            params[k] = convert_legacy_to_fixed_id(v.get(), corner_type_map, lang)
+        elif k == "thread_type":
+            params[k] = convert_legacy_to_fixed_id(v.get(), thread_type_map, lang)
+        else:
+            try:
+                params[k] = float(v.get())
+            except ValueError:
+                params[k] = v.get()
+    
+    general_params = {
+        "project_name": project_name_var.get(),
+        "machine": machine_var.get()
+    }
+    
+    save_profile(mode_id, profile_name, params, general_params)
+
+def on_load_profile():
+    mode_id = mode_var.get()
+    available = load_available_profiles(mode_id)
+    if not available:
+        messagebox.showwarning("Aucun Profil", f"Aucun profil disponible pour le mode {mode_id}.")
+        return
+    
+    # Fenêtre simple pour sélection (ou utilisez un Combobox dans la frame)
+    profile_window = tk.Toplevel(root)
+    profile_window.title("Charger Profil")
+    profile_window.geometry("300x150")
+    
+    ttk.Label(profile_window, text=f"Profils pour mode {mode_id} :").pack(pady=5)
+    profile_var = tk.StringVar()
+    profile_combo = ttk.Combobox(profile_window, values=available, textvariable=profile_var, state="readonly")
+    profile_combo.pack(pady=5)
+    profile_combo.set(available[0])  # Premier par défaut
+    
+    def confirm_load():
+        selected = profile_var.get()
+        try:
+            load_profile(mode_id, selected)
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Échec du chargement : {str(e)}")
+        profile_window.destroy()
+    
+    ttk.Button(profile_window, text="Charger", command=confirm_load).pack(pady=10)
+
 # Initialisation de la fenêtre
 root = tk.Tk()
 translations = load_translations()
@@ -550,7 +724,7 @@ config = load_config()
 language_var = tk.StringVar(value=config.get("language", "fr"))
 
 root.title(translations["translations"][language_var.get()]["title"])
-root.geometry("850x600+100+100")
+root.geometry("850x700+100+100")
 
 # Style
 style = ttk.Style()
@@ -645,6 +819,13 @@ image_label.grid(row=0, column=2, rowspan=2, padx=5, pady=5, sticky="nsew")
 # Bouton de génération
 generate_button = ttk.Button(root, text=translations["translations"][language_var.get()]["generate_button"], command=save_and_generate)
 generate_button.grid(row=2, column=0, columnspan=3, pady=10)
+
+# Frame pour les boutons de profils
+profile_frame = ttk.Frame(root, style="TFrame")
+profile_frame.grid(row=3, column=0, columnspan=3, pady=5, sticky="ew")
+
+ttk.Button(profile_frame, text="Sauvegarder Profil", command=on_save_profile).grid(row=0, column=0, padx=5)
+ttk.Button(profile_frame, text="Charger Profil", command=on_load_profile).grid(row=0, column=1, padx=5)
 
 # Configurer la grille
 root.grid_columnconfigure(0, minsize=150, weight=1)
