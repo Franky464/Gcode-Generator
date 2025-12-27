@@ -1,0 +1,26 @@
+{
+    "mode": "6",
+    "name": "per\u00e7age_d35_helico\u00efdal_40mm",
+    "params": {
+        "start_x": 0.0,
+        "start_y": 0.0,
+        "start_z": 0.0,
+        "clearance_height": 5.0,
+        "tool_diameter": 10.0,
+        "hole_diameter": 35.0,
+        "total_depth": 1.0,
+        "depth_per_pass": 1.0,
+        "feed_rate": 1800.0,
+        "spindle_speed": 1000.0,
+        "path_type": "right",
+        "thread_type": "nut_internal",
+        "overlap_percent": 50.0,
+        "thread_pitch": 1.0,
+        "thread_number": 40.0
+    },
+    "general": {
+        "project_name": "THR_montage_rlt_45_percage_d35x11(2eme)",
+        "machine": "CNC_450x800"
+    },
+    "saved_at": "2025-10-23T18:38:32.470534"
+}

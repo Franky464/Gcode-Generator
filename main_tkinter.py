@@ -35,6 +35,7 @@ thread_type_map = {
     "screw_external": {"fr": "Vis (Externe)", "en": "Screw (External)", "de": "Schraube (Außen)", "es": "Tornillo (Externa)", "index": 2}
 }
 
+
 def convert_legacy_to_fixed_id(value, mapping, lang="fr"):
     """Convertit une valeur traduite ou un code en identifiant fixe."""
     for fixed_id, data in mapping.items():
@@ -68,14 +69,31 @@ def save_config(config):
     with open("config.json", "w") as f:
         json.dump(config, f, indent=4)
 
-def generate_header(project_name, machine_name, stock_x, stock_y, stock_z):
+# Charger des paramètres globaux au niveau module pour que les fonctions
+# utilisent un coefficient de plongée (percent) même si `main()` n'a pas
+# encore été exécuté. Les clés prises en charge (priorité) :
+# - global_feed_rate_base
+# - global_feed_rate_percent
+# Compatibilité : on retombe sur les clés historiques si nécessaire.
+_imported_config = load_config()
+#_global_feed_rate_base = _imported_config.get("global_feed_rate_base", _imported_config.get("global_feed_rate_drill", 1800))
+_percent_raw = _imported_config.get("global_feed_rate_percent", _imported_config.get("global_feed_rate_drill_percent", "50%"))
+try:
+    percent = int(str(_percent_raw).strip().strip("%"))
+except Exception:
+    percent = 100
+#global_feed_rate_base = _global_feed_rate_base
+
+def generate_header(project_name, machine_name, stock_x, stock_y, stock_z, global_units="mm"):  # MODIFIÉ: Ajout paramètre global_units avec défaut "mm"
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # MODIFIÉ: Choix conditionnel G20/G21
+    units_code = "G21" if global_units == "mm" else "G20"
     header = f"""; NC file from Picture_CNC
 ; {project_name}
 ; {current_time}
 ; {machine_name}
-; [{stock_x:.3f}, {stock_y:.3f}, {stock_z:.3f}]
-G21
+; ({stock_x:.3f}, {stock_y:.3f}, {stock_z:.3f} {global_units})
+{units_code} ;({global_units})
 G90
 M3 S1000
 G04 P5
@@ -86,6 +104,11 @@ def calculate_stock_dimensions(operations):
     # Charger la configuration pour accéder aux paramètres spécifiques
     config = load_config()
     operation = config.get("last_operation", "1")
+    # CORRECTION: Définition de global_units (manquante dans main())
+    global_units = config.get("global_units", "mm")
+    if global_units not in ["mm", "in"]:
+        print(f"AVERTISSEMENT: Unités invalides '{global_units}', fallback à 'mm'")
+        global_units = "mm"
 
     # Mode 1 : Surfaçage
     if operation == "1":
@@ -216,8 +239,8 @@ def surfacing(config):
     end_y = start_y + length_y
 
     gcode = f"\n; Surfacing operation ({path_type_label})\n"
-    gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
-    gcode += f"G00 Z{clearance_height:.3f} f{feed_rate}\n"
+    gcode += f"G0 S{spindle_speed:.0f}  F{feed_rate:.0f}\n"
+    gcode += f"G00 Z{clearance_height:.3f}  F{feed_rate:.0f}\n"
 
     if path_type_code == "2":  # En avalant (climb)
         gcode += f"G00 X{initial_x:.3f} Y{end_y:.3f}\n"
@@ -230,31 +253,31 @@ def surfacing(config):
     for i in range(num_passes_z):
         current_z -= min(depth_per_pass, total_depth - i * depth_per_pass)
         gcode += f"; Pass {i+1} at Z={current_z:.3f}\n"
-        gcode += f"G01 Z{current_z:.3f}\n"
+        gcode += f"G01 Z{current_z:.3f} F{feed_rate * percent / 100:.3f}\n"
         current_y = initial_y
         for j in range(num_passes_y):
             if current_y > start_y + length_y:
                 continue
             if path_type_code == "3":  # En alternance
-                gcode += f"G01 Y{current_y:.3f}\n"
+                gcode += f"G01 Y{current_y:.3f}  F{feed_rate:.0f}\n"
                 if j % 2 == 0:
-                    gcode += f"G01 X{end_x:.3f}\n"
+                    gcode += f"G01 X{end_x:.3f}  F{feed_rate:.0f}\n"
                 else:
-                    gcode += f"G01 X{start_x:.3f}\n"
+                    gcode += f"G01 X{start_x:.3f}  F{feed_rate:.0f}\n"
             else:  # En opposition ou En avalant
                 if path_type_code == "2":  # En avalant
-                    gcode += f"G01 Y{current_y:.3f}\n"
-                    gcode += f"G01 X{start_x:.3f}\n"
+                    gcode += f"G01 Y{current_y:.3f}  F{feed_rate:.0f}\n"
+                    gcode += f"G01 X{start_x:.3f}  F{feed_rate:.0f}\n"
                     if current_y + step_over <= start_y + length_y:
                         gcode += f"G00 X{end_x:.3f}\n"
                 else:  # En opposition
-                    gcode += f"G01 Y{current_y:.3f}\n"
-                    gcode += f"G01 X{end_x:.3f}\n"
+                    gcode += f"G01 Y{current_y:.3f}  F{feed_rate:.0f}\n"
+                    gcode += f"G01 X{end_x:.3f}  F{feed_rate:.0f}\n"
                     if current_y + step_over <= start_y + length_y:
                         gcode += f"G00 X{start_x:.3f}\n"
             current_y += step_over
         if current_y <= start_y + length_y:
-            gcode += f"G01 Y{current_y:.3f}\n"
+            gcode += f"G01 Y{current_y:.3f}  F{feed_rate:.0f}\n"
     gcode += f"G00 Z{clearance_height:.3f}\n"
 
     return gcode, start_x, start_y, start_z, current_z, end_x, end_y, clearance_height
@@ -300,9 +323,9 @@ def contour_drilling(config):
     gcode += f"; ({path_type_label}, {drilling_type_label})\n"
     gcode += f"; D={hole_diameter:.1f} H={total_depth:.1f} Bit={tool_diameter}\n"
     gcode += f"; P={total_depth/depth_per_pass:.2f} x {depth_per_pass}mm\n"
-    gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
-    gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
-    gcode += f"G00 Z{clearance_height:.3f} f{feed_rate}\n"
+    gcode += f"; (X,Y,Z = {start_x}, {start_y}, {start_z})\n\n"
+    gcode += f"G0 S{spindle_speed:.0f}  F{feed_rate:.0f}\n"
+    gcode += f"G00 Z{clearance_height:.3f}  F{feed_rate:.0f}\n"
     gcode += f"G00 X{initial_x:.3f} Y{initial_y:.3f}\n"
 
     hole_radius = hole_diameter / 2
@@ -328,11 +351,11 @@ def contour_drilling(config):
                 current_radius = tool_radius  # Limiter au rayon minimum de l'outil
             tangent_x = start_x + current_radius
             gcode += f"G00 X{tangent_x:.3f} Y{initial_y:.3f}\n"
-            gcode += f"G01 Z{current_z:.3f}\n"
+            gcode += f"G01 Z{current_z:.3f} F{feed_rate * percent / 100:.3f}\n"
             if path_type == "conventional":
-                gcode += f"G02 X{tangent_x:.3f} Y{initial_y:.3f} I{-current_radius:.3f} J0.000\n"
+                gcode += f"G02 X{tangent_x:.3f} Y{initial_y:.3f} I{-current_radius:.3f} J0.000  F{feed_rate:.0f}\n"
             else:
-                gcode += f"G03 X{tangent_x:.3f} Y{initial_y:.3f} I{-current_radius:.3f} J0.000\n"
+                gcode += f"G03 X{tangent_x:.3f} Y{initial_y:.3f} I{-current_radius:.3f} J0.000  F{feed_rate:.0f}\n"
 
     gcode += f"G00 Z{clearance_height:.3f}\n"
     gcode += f"G00 X{initial_x:.3f} Y{initial_y:.3f}\n"
@@ -390,9 +413,9 @@ def threading(config):
         gcode = f"\n; Threading operation\n"
         gcode += f"; ({thread_type_label}, {path_type_label})\n"
         gcode += f"; D={hole_diameter:.1f} H={thread_number*thread_pitch:.1f} P={thread_pitch:.1f}\n"
-        gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
-        gcode += f"G00 Z{clearance_height} S{spindle_speed:.1f}\n"
-        gcode += f"G00 X{start_x:.3f} Y{start_y:.3f} Z{start_z:.3f} f{feed_rate} S{spindle_speed:.1f}\n"
+        gcode += f"; (X,Y,Z = {start_x}, {start_y}, {start_z})\n\n"
+        gcode += f"G00 Z{clearance_height} S{spindle_speed:.0f}\n"
+        gcode += f"G00 X{start_x:.3f} Y{start_y:.3f} Z{start_z:.3f}  F{feed_rate:.0f} S{spindle_speed:.0f}\n"
 
         for pass_num in range(1, num_radial_passes + 1):
             current_x = base_x + (pass_num + 1) * depth_per_pass
@@ -412,9 +435,9 @@ def threading(config):
         gcode = f"\n; Threading operation\n"
         gcode += f"; ({thread_type_label}, {path_type_label})\n"
         gcode += f"; D={hole_diameter:.1f} H={thread_number*thread_pitch:.1f} P={thread_pitch:.1f}\n"
-        gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}\n\n"
-        gcode += f"G00 Z{clearance_height} S{spindle_speed:.1f}\n"
-        gcode += f"G00 X{start_x + hole_radius + tool_radius + total_depth:.3f} Y{start_y:.3f} Z{start_z:.3f} f{feed_rate}\n"
+        gcode += f"; (X,Y,Z = {start_x}, {start_y}, {start_z})\n\n"
+        gcode += f"G00 Z{clearance_height} S{spindle_speed:.0f}\n"
+        gcode += f"G00 X{start_x + hole_radius + tool_radius + total_depth:.3f} Y{start_y:.3f} Z{start_z:.3f}  F{feed_rate:.0f}\n"
 
         for pass_num in range(1, num_radial_passes + 1):
             current_x = base_x - (pass_num) * depth_per_pass + depth_per_pass
@@ -472,9 +495,9 @@ def matrix_drilling(config):
     gcode = f"\n; Matrix drilling RAST\n"
     gcode += f"; {num_cols} x {num_rows} holes\n"
     gcode += f"; Pas X= {spacing_x}, Pas Y= {spacing_y}\n"
-    gcode += f"; X,Y,Z = {start_x}, {start_y}, {start_z}, H = {total_depth}\n\n"
-    gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
-    gcode += f"G00 Z{clearance_height:.3f} f{feed_rate}\n"
+    gcode += f"; (X,Y,Z = {start_x}, {start_y}, {start_z}, H = {total_depth})\n\n"
+    gcode += f"G0 S{spindle_speed:.0f}  F{feed_rate:.0f}\n"
+    gcode += f"G00 Z{clearance_height:.3f}  F{feed_rate:.0f}\n"
     gcode += f"G00 X{start_x:.3f} Y{start_y:.3f}\n"
 
     for j in range(num_rows):
@@ -489,7 +512,7 @@ def matrix_drilling(config):
             for k in range(num_passes_z):
                 current_z -= min(depth_per_pass, total_depth - k * depth_per_pass)
                 gcode += f"; Pass {k+1} at Z={current_z:.3f}\n"
-                gcode += f"G01 Z{current_z:.3f}\n"
+                gcode += f"G01 Z{current_z:.3f} F{feed_rate * percent / 100:.3f}\n"
                 if k < num_passes_z - 1:
                     gcode += f"G00 Z{deburr_height:.3f}\n"
             gcode += f"G00 Z{clearance_height:.3f}\n"
@@ -528,45 +551,45 @@ def corner_radius(config):
     arc_radius = radius + tool_radius
 
     gcode = f"\n; Corner radius operation ({corner_type_label}, {path_type_label})\n"
-    gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
-    gcode += f"G00 Z{clearance_height:.3f} f{feed_rate}\n"
+    gcode += f"G0 S{spindle_speed:.0f}  F{feed_rate:.0f}\n"
+    gcode += f"G00 Z{clearance_height:.3f}  F{feed_rate:.0f}\n"
     gcode += "G91\n"  # Mode relatif pour les arcs
 
     # Définir les commandes d'arc et retours selon corner_type et path_type
     if corner_type == "front_left":
         if path_type == "conventional":
-            arc_cmd = f"G03 X{arc_radius:.3f} Y-{arc_radius:.3f} I{arc_radius:.3f} J0.000"
+            arc_cmd = f"G03 X{arc_radius:.3f} Y-{arc_radius:.3f} I{arc_radius:.3f} J0.000  F{feed_rate:.0f}"
             return_x = f"G00 X-{arc_radius:.3f}"
             return_y = f"G00 Y{arc_radius:.3f}"
         else:
-            arc_cmd = f"G02 X-{arc_radius:.3f} Y{arc_radius:.3f} I0.000 J{arc_radius:.3f}"
+            arc_cmd = f"G02 X-{arc_radius:.3f} Y{arc_radius:.3f} I0.000 J{arc_radius:.3f}  F{feed_rate:.0f}"
             return_x = f"G00 X{arc_radius:.3f}"
             return_y = f"G00 Y-{arc_radius:.3f}"
     elif corner_type == "front_right":
         if path_type == "conventional":
-            arc_cmd = f"G03 X{arc_radius:.3f} Y{arc_radius:.3f} I0.000 J{arc_radius:.3f}"
+            arc_cmd = f"G03 X{arc_radius:.3f} Y{arc_radius:.3f} I0.000 J{arc_radius:.3f}  F{feed_rate:.0f}"
             return_x = f"G00 X-{arc_radius:.3f}"
             return_y = f"G00 Y-{arc_radius:.3f}"
         else:
-            arc_cmd = f"G02 X-{arc_radius:.3f} Y-{arc_radius:.3f} I-{arc_radius:.3f} J0.000"
+            arc_cmd = f"G02 X-{arc_radius:.3f} Y-{arc_radius:.3f} I-{arc_radius:.3f} J0.000  F{feed_rate:.0f}"
             return_x = f"G00 X{arc_radius:.3f}"
             return_y = f"G00 Y{arc_radius:.3f}"
     elif corner_type == "rear_right":
         if path_type == "conventional":
-            arc_cmd = f"G03 X-{arc_radius:.3f} Y{arc_radius:.3f} I-{arc_radius:.3f} J0.000"
+            arc_cmd = f"G03 X-{arc_radius:.3f} Y{arc_radius:.3f} I-{arc_radius:.3f} J0.000  F{feed_rate:.0f}"
             return_x = f"G00 X{arc_radius:.3f}"
             return_y = f"G00 Y-{arc_radius:.3f}"
         else:
-            arc_cmd = f"G02 X{arc_radius:.3f} Y-{arc_radius:.3f} I0.000 J-{arc_radius:.3f}"
+            arc_cmd = f"G02 X{arc_radius:.3f} Y-{arc_radius:.3f} I0.000 J-{arc_radius:.3f}  F{feed_rate:.0f}"
             return_x = f"G00 X-{arc_radius:.3f}"
             return_y = f"G00 Y{arc_radius:.3f}"
     elif corner_type == "rear_left":
         if path_type == "conventional":
-            arc_cmd = f"G03 X-{arc_radius:.3f} Y-{arc_radius:.3f} I0.000 J-{arc_radius:.3f}"
+            arc_cmd = f"G03 X-{arc_radius:.3f} Y-{arc_radius:.3f} I0.000 J-{arc_radius:.3f}  F{feed_rate:.0f}"
             return_x = f"G00 X{arc_radius:.3f}"
             return_y = f"G00 Y{arc_radius:.3f}"
         else:
-            arc_cmd = f"G02 X{arc_radius:.3f} Y{arc_radius:.3f} I{arc_radius:.3f} J0.000"
+            arc_cmd = f"G02 X{arc_radius:.3f} Y{arc_radius:.3f} I{arc_radius:.3f} J0.000  F{feed_rate:.0f}"
             return_x = f"G00 X-{arc_radius:.3f}"
             return_y = f"G00 Y-{arc_radius:.3f}"
 
@@ -576,7 +599,7 @@ def corner_radius(config):
         target_z = start_z - (i * depth_per_pass + depth)
         gcode += f"; Pass {i+1} at Z={target_z:.3f}\n"
         gcode += "G90\n"  # Mode absolu pour Z
-        gcode += f"G01 Z{target_z:.3f}\n"
+        gcode += f"G01 Z{target_z:.3f} F{feed_rate * percent / 100:.3f}\n"
         gcode += "G91\n"  # Retour au mode relatif pour l'arc
         gcode += f"{arc_cmd}\n"
         gcode += "G90\n"
@@ -626,9 +649,9 @@ def oblong_hole(config):
     half_length_y = length_y / 2
 
     gcode = f"\n; Oblong hole operation ({path_type_label})\n"
-    gcode += f"G0 S{spindle_speed:.1f} f{feed_rate}\n"
+    gcode += f"G0 S{spindle_speed:.0f}  F{feed_rate:.0f}\n"
     gcode += f"G90\n"
-    gcode += f"G00 X{start_x:.3f} Y{start_y:.3f} Z{start_z:.3f} f{feed_rate}\n"
+    gcode += f"G00 X{start_x:.3f} Y{start_y:.3f} Z{start_z:.3f}  F{feed_rate:.0f}\n"
 
     for i in range(num_passes_z):
         current_depth = min((i + 1) * depth_per_pass, total_depth)
@@ -638,33 +661,33 @@ def oblong_hole(config):
        
         if path_type == "conventional":
             gcode += f"G90\n"
-            gcode += f"G00 X{start_x:.3f} Y{start_y-half_width:.3f} Z{start_z:.3f}\n"
-            gcode += f"G01 Z{target_z:.3f}\n"
+            gcode += f"G00 X{start_x:.3f} Y{start_y-half_width:.3f} Z{start_z:.3f}  F{feed_rate:.0f}\n"
+            gcode += f"G01 Z{target_z:.3f} F{feed_rate * percent / 100:.3f}\n"
             gcode += "G91\n"
             gcode += f"G00 X{-half_length_x:.3f} Y{-half_length_y:.3f}\n"
-            gcode += f"G02 X{-half_width:.3f} Y{half_width:.3f} I0.000 J{half_width:.3f}\n"
-            gcode += f"G01 X0.000 Y{length_y:.3f}\n"
-            gcode += f"G02 X{half_width:.3f} Y{half_width:.3f} I{half_width:.3f} J0.000\n"
-            gcode += f"G01 X{length_x:.3f} Y0.000\n"
-            gcode += f"G02 X{half_width:.3f} Y{-half_width:.3f} I0.000 J{-half_width:.3f}\n"
-            gcode += f"G01 X0.000 Y{-length_y:.3f}\n"
-            gcode += f"G02 X{-half_width:.3f} Y{-half_width:.3f} I{-half_width:.3f} J0.000\n"
-            gcode += f"G01 X{-length_x:.3f} Y0.000\n"
+            gcode += f"G02 X{-half_width:.3f} Y{half_width:.3f} I0.000 J{half_width:.3f}  F{feed_rate:.0f}\n"
+            gcode += f"G01 X0.000 Y{length_y:.3f}  F{feed_rate:.0f}\n"
+            gcode += f"G02 X{half_width:.3f} Y{half_width:.3f} I{half_width:.3f} J0.000  F{feed_rate:.0f}\n"
+            gcode += f"G01 X{length_x:.3f} Y0.000  F{feed_rate:.0f}\n"
+            gcode += f"G02 X{half_width:.3f} Y{-half_width:.3f} I0.000 J{-half_width:.3f}  F{feed_rate:.0f}\n"
+            gcode += f"G01 X0.000 Y{-length_y:.3f}  F{feed_rate:.0f}\n"
+            gcode += f"G02 X{-half_width:.3f} Y{-half_width:.3f} I{-half_width:.3f} J0.000  F{feed_rate:.0f}\n"
+            gcode += f"G01 X{-length_x:.3f} Y0.000  F{feed_rate:.0f}\n"
             gcode += "G90\n"
         else:
             gcode += f"G90\n"
-            gcode += f"G00 X{start_x-half_width:.3f} Y{start_y-(length_y):.3f} Z{start_z:.3f}\n"
-            gcode += f"G01 Z{target_z:.3f}\n"
+            gcode += f"G00 X{start_x-half_width:.3f} Y{start_y-(length_y):.3f} Z{start_z:.3f}  F{feed_rate:.0f}\n"
+            gcode += f"G01 Z{target_z:.3f} F{feed_rate * percent / 100:.3f}\n"
             gcode += "G91\n"
             gcode += f"G00 X{-half_length_x:.3f} Y{half_length_y:.3f}\n"
-            gcode += f"G03 X{half_width:.3f} Y{-half_width:.3f} I{half_width:.3f} J0.000\n"
-            gcode += f"G01 X{length_x:.3f} Y0.000\n"
-            gcode += f"G03 X{half_width:.3f} Y{half_width:.3f} I0.000 J{half_width:.3f}\n"
-            gcode += f"G01 X0.000 Y{length_y:.3f}\n"
-            gcode += f"G03 X{-half_width:.3f} Y{half_width:.3f} I{-half_width:.3f} J0.000\n"
-            gcode += f"G01 X{-length_x:.3f} Y0.000\n"
-            gcode += f"G03 X{-half_width:.3f} Y{-half_width:.3f} I0.000 J{-half_width:.3f}\n"
-            gcode += f"G01 X0.000 Y{-length_y:.3f}\n"
+            gcode += f"G03 X{half_width:.3f} Y{-half_width:.3f} I{half_width:.3f} J0.000  F{feed_rate:.0f}\n"
+            gcode += f"G01 X{length_x:.3f} Y0.000  F{feed_rate:.0f}\n"
+            gcode += f"G03 X{half_width:.3f} Y{half_width:.3f} I0.000 J{half_width:.3f}  F{feed_rate:.0f}\n"
+            gcode += f"G01 X0.000 Y{length_y:.3f}  F{feed_rate:.0f}\n"
+            gcode += f"G03 X{-half_width:.3f} Y{half_width:.3f} I{-half_width:.3f} J0.000  F{feed_rate:.0f}\n"
+            gcode += f"G01 X{-length_x:.3f} Y0.000  F{feed_rate:.0f}\n"
+            gcode += f"G03 X{-half_width:.3f} Y{-half_width:.3f} I0.000 J{-half_width:.3f}  F{feed_rate:.0f}\n"
+            gcode += f"G01 X0.000 Y{-length_y:.3f}  F{feed_rate:.0f}\n"
             gcode += "G90\n"
 
  
@@ -678,11 +701,35 @@ def oblong_hole(config):
     return gcode, start_x - half_length_x, start_y - half_length_y, start_z, start_z - total_depth, start_x + half_length_x, start_y + half_length_y, stock_z
 
 def main():
-    # Étape 1 : Charger les paramètres
     config = load_config()
     project_name = config.get("project_name", "test")
     machine_name = config.get("machine", "CNC_450x800")
     operation = config.get("last_operation", "1")
+
+    # Récupérer la valeur de base (vitesse max)
+    # Récupérer la valeur de base (vitesse max) — priorité à la nouvelle clé
+    #base_feed_rate = config.get("global_feed_rate_base", config.get("global_feed_rate_drill", 1800))
+
+    # Récupérer le pourcentage depuis config.json (ex: "75%") — priorité à la nouvelle clé
+    percent_str = config.get("global_feed_rate_percent", config.get("global_feed_rate_drill_percent", "25%"))
+    percent_str = str(percent_str).strip().strip("%")
+    global percent
+    print(f"Pourcentage de vitesse de coupe (plongée) configuré: {percent_str}%")
+    try:
+        percent = int(percent_str)
+    except ValueError:
+        percent = 100
+    print(f"Pourcentage de vitesse calculé: {percent/100}%")
+
+    # Calculer la vitesse effective (si besoin)
+    #effective_feed_rate = int(base_feed_rate * percent / 100)
+    
+    # AJOUT OBLIGATOIRE : définition de global_units
+    global_units = config.get("global_units", "mm")
+    if global_units not in ["mm", "in"]:
+        print(f"AVERTISSEMENT: Unités invalides '{global_units}', fallback à 'mm'")
+        global_units = "mm"
+
     operation_map = {
         "1": "Surfaçage",
         "2": "Perçages par détourage",
@@ -693,6 +740,7 @@ def main():
     }
     selected_operation = operation_map.get(operation, "Surfaçage")
     print(f"Mode sélectionné : {selected_operation} (ID: {operation})")
+    print(f"Unités globales : {global_units}")  # Maintenant OK
 
     # Étape 2 : Exécuter la fonction correspondante avec les paramètres du mode
     operations = []
@@ -720,7 +768,8 @@ def main():
 
         # Étape 3 : Calculer les dimensions et générer le fichier
         stock_x, stock_y, stock_z = calculate_stock_dimensions(operations)
-        gcode = generate_header(project_name, machine_name, stock_x, stock_y, stock_z)
+        # MODIFIÉ: Passage de global_units à generate_header
+        gcode = generate_header(project_name, machine_name, stock_x, stock_y, stock_z, global_units)
         for op, _, _, _, _, _, _, _ in operations:
             gcode += op
         gcode += "G90\nM5\nM30\n"

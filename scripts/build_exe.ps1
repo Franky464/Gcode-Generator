@@ -14,13 +14,30 @@ Write-Host 'Ensure PyInstaller is installed in the active environment' -Foregrou
 python -m pip install --upgrade pip
 python -m pip install pyinstaller
 
+# Determine project root and entry script (GUI.py is in the repo root)
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$projectRoot = Resolve-Path (Join-Path $scriptDir '..')
+$entryScript = Join-Path $projectRoot 'GUI.py'
+
+# Use absolute paths for data files so PyInstaller finds them regardless of working dir
+$root = $projectRoot.Path
+$imagesSrc = Join-Path $root 'images'
+$translationsSrc = Join-Path $root 'translations.json'
+$configSrc = Join-Path $root 'config.json'
+
+# Ensure dist/work go to project-level folders (not scripts\dist)
+$distPath = Join-Path $root 'dist'
+$workPath = Join-Path $root 'build'
+$extraArgs = "--distpath=`"$distPath`" --workpath=`"$workPath`""
+
 $baseArgs = '--noconfirm --clean --windowed --name Gcode-Generator'
-$dataArgs = "--add-data images;images --add-data translations.json;. --add-data config.json;."
+# On Windows PowerShell we must quote the --add-data values and use '=' so semicolons don't split the command
+$dataArgs = "--add-data=`"$imagesSrc;images`" --add-data=`"$translationsSrc;.`" --add-data=`"$configSrc;.`""
 
 if ($OneFile) {
-    $cmd = "pyinstaller $baseArgs --onefile $dataArgs GUI.py"
+  $cmd = "pyinstaller $baseArgs --onefile $dataArgs $extraArgs `"$entryScript`""
 } else {
-    $cmd = "pyinstaller $baseArgs --onedir $dataArgs GUI.py"
+  $cmd = "pyinstaller $baseArgs --onedir $dataArgs $extraArgs `"$entryScript`""
 }
 
 Write-Host 'Running:' $cmd -ForegroundColor Green

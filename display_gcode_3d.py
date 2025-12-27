@@ -106,11 +106,17 @@ def interpolate_arc(start_x, start_y, start_z, end_x, end_y, end_z, i, j, direct
         print(f"Débogage: Erreur dans interpolate_arc : {str(e)}")
         return [start_x, end_x], [start_y, end_y], [start_z, end_z]
 
+# Variable globale pour stocker le contenu du G-code chargé
+current_gcode_content = ""
+
 def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
     """Trace le G-code en 3D dans une fenêtre Tkinter."""
+    global current_gcode_content
+    current_gcode_content = gcode  # On stocke le G-code pour l'onglet texte
+
     print("Débogage: Début de plot_gcode_3d")
     try:
-        fig = plt.figure(figsize=(10, 7))  # Ratio 10:7 pour matcher fenêtre 1000x700 sans distorsion
+        fig = plt.figure(figsize=(9, 7))  # Ratio 10:7 pour matcher fenêtre 1000x700 sans distorsion
         try:
             ax = fig.add_subplot(111, projection='3d')
             print("Débogage: Axe 3D créé avec succès")
@@ -122,15 +128,12 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
         colors = []
         current_x, current_y, current_z = 0.0, 0.0, 0.0
         mode = 'absolute'  # G90 par défaut
-        # Initial point sans couleur (premier segment utilisera la couleur du premier mouvement)
         x.append(current_x)
         y.append(current_y)
         z.append(current_z)
 
-        # Amélioration regex pour plus de décimales et entiers
         coord_pattern = r'([XYZEIJ])([-+]?\d*\.?\d+)'
 
-        # Parsing du G-code
         for line in gcode.split('\n'):
             line = line.strip()
             if not line or line.startswith(';') or line.startswith('('):
@@ -140,27 +143,24 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
             try:
                 g_match = re.search(r'G(\d+)', line)
                 
-                # Extraction des coordonnées avec regex améliorée
                 coords = re.findall(coord_pattern, line)
                 coord_dict = {k: float(v) for k, v in coords}
                 
-                # Extraction I/J séparée si pas dans coords (mais inclus maintenant)
                 i_match = re.search(r'I([-+]?\d*\.?\d+)', line)
                 j_match = re.search(r'J([-+]?\d*\.?\d+)', line)
                 
-                # Calcul des nouvelles positions selon le mode
                 if mode == 'absolute':
                     new_x = coord_dict.get('X', current_x)
                     new_y = coord_dict.get('Y', current_y)
                     new_z = coord_dict.get('Z', current_z)
-                else:  # relative
+                else:
                     new_x = current_x + coord_dict.get('X', 0.0)
                     new_y = current_y + coord_dict.get('Y', 0.0)
                     new_z = current_z + coord_dict.get('Z', 0.0)
 
                 if g_match:
                     g_num = g_match.group(1)
-                    g_code = f'G{g_num.zfill(2)}'  # Normalise G0 → G00, G1 → G01, etc.
+                    g_code = f'G{g_num.zfill(2)}'
                     
                     if g_code == 'G90':
                         mode = 'absolute'
@@ -172,15 +172,12 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
                         continue
                     
                     if g_code in ('G00', 'G01'):
-                        # Ajouter la couleur AVANT le point (pour le segment vers ce point)
                         color_choice = 'y' if g_code == 'G00' else 'r'
                         colors.append(color_choice)
                         x.append(new_x)
                         y.append(new_y)
                         z.append(new_z)
-                        # Log détaillé pour G00/G01 (avec ligne originale pour debug)
-                        print(f"Débogage: [{g_code}] (ligne: {line[:50]}...) vers ({new_x:.3f}, {new_y:.3f}, {new_z:.3f}) mode={mode} COULEUR={color_choice}")
-                        # Log spécifique pour mouvements Z-only (plunges/retracts)
+                        print(f"Débogage: [{g_code}] vers ({new_x:.3f}, {new_y:.3f}, {new_z:.3f}) mode={mode} COULEUR={color_choice}")
                         if 'X' not in coord_dict and 'Y' not in coord_dict and 'Z' in coord_dict:
                             direction = "plunge" if new_z < current_z else "retract"
                             print(f"Débogage: {direction.capitalize()} Z-only [{g_code}] en {color_choice}")
@@ -188,13 +185,12 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
                     elif g_code in ('G02', 'G03'):
                         i = float(i_match.group(1)) if i_match else 0.0
                         j = float(j_match.group(1)) if j_match else 0.0
-                        print(f"Débogage: Arc G{g_code[-2:]} I={i} J={j} vers ({new_x:.3f}, {new_y:.3f}, {new_z:.3f}) mode={mode}")
+                        print(f"Débogage: Arc G{g_code[-2:]} I={i} J={j} vers ({new_x:.3f}, {new_y:.3f}, {new_z:.3f})")
                         x_arc, y_arc, z_arc = interpolate_arc(
                             current_x, current_y, current_z,
                             new_x, new_y, new_z,
                             i, j, direction=g_code, num_points=50
                         )
-                        # Ajouter les couleurs pour les segments d'arc AVANT d'étendre les points
                         colors.extend(['b'] * (len(x_arc) - 1))
                         x.extend(x_arc[1:])
                         y.extend(y_arc[1:])
@@ -204,7 +200,7 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
                         print(f"Débogage: Commande G-code ignorée : {g_code}")
             except Exception as e:
                 print(f"Débogage: Erreur lors du traitement de la ligne '{line}' : {str(e)}")
-                continue  # Ignorer les lignes problématiques
+                continue
 
         if len(x) > 1 and len(colors) > 0:
             x_min, x_max = min(x, default=0), max(x, default=stock_x)
@@ -212,49 +208,39 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
             z_min, z_max = min(z, default=0), max(z, default=stock_z)
             x_margin, y_margin, z_margin = stock_x * 0.1, stock_y * 0.1, stock_z * 0.1
 
-            # Calcul des spans pour les références (local)
             span_x = x_max - x_min
             span_y = y_max - y_min
             max_span = max(span_x, span_y)
 
-            # Ajout des lignes de référence en vert (même longueur = max_span, ancrées aux min) AVANT le tracé
-            ref_color = 'g'  # Vert
+            ref_color = 'g'
             ref_linewidth = 2
             ax.plot([x_min, x_min + max_span], [y_min, y_min], [0, 0], color=ref_color, linewidth=ref_linewidth, label=f'Ref X/Y = {max_span:.1f} mm')
             ax.plot([x_min, x_min], [y_min, y_min + max_span], [0, 0], color=ref_color, linewidth=ref_linewidth)
-            print(f"Débogage: Lignes de référence vertes ajoutées (longueur commune {max_span:.1f} mm sur X et Y depuis ({x_min}, {y_min}))")
+            print(f"Débogage: Lignes de référence vertes ajoutées (longueur commune {max_span:.1f} mm)")
 
-            # Étendre les limites pour inclure les lignes refs
             x_max = max(x_max, x_min + max_span)
             y_max = max(y_max, y_min + max_span)
-            x_margin, y_margin = (x_max - x_min) * 0.1, (y_max - y_min) * 0.1  # Recalcul marges
+            x_margin, y_margin = (x_max - x_min) * 0.1, (y_max - y_min) * 0.1
 
-            # Tracé du modèle
             for i in range(len(x) - 1):
                 color = colors[i]
                 if not (np.isnan(x[i]) or np.isnan(x[i+1]) or np.isnan(y[i]) or np.isnan(y[i+1]) or np.isnan(z[i]) or np.isnan(z[i+1])):
                     ax.plot([x[i], x[i+1]], [y[i], y[i+1]], [z[i], z[i+1]], color + '-', linewidth=1)
-                else:
-                    print(f"Débogage: Segment ignoré à l'index {i} en raison de valeurs non valides")
 
-            ax.legend(loc='upper right')  # Légende pour les refs (optionnel)
+            ax.legend(loc='upper right')
 
-            # Limites finales (incluent refs)
             ax.set_xlim(x_min - x_margin, x_max + x_margin)
             ax.set_ylim(y_min - y_margin, y_max + y_margin)
             ax.set_zlim(z_min - z_margin, z_max + z_margin)
 
-            # Correction échelle : Forcer aspect ratio égal pour X/Y (1:1), Z compressé (0.5 pour vue usinage)
-            # Compatible avec versions matplotlib <3.3 (ignore si non supporté)
             try:
-                ax.set_box_aspect([2, 1, 0.5])  # Ajuste ici si besoin (ex. [1,1,1] pour cube parfait)
-                print(f"Débogage: Aspect ratio appliqué : [1, 1, 0.5] (X/Y égaux, Z compressé)")
+                ax.set_box_aspect([2, 1, 0.5])
+                print(f"Débogage: Aspect ratio appliqué : [1, 1, 0.5]")
             except AttributeError:
-                print("Débogage: set_box_aspect non supporté (matplotlib <3.3) - Vue sans ratio forcé")
-                # Fallback : Ajuster dist pour une vue plus équilibrée
+                print("Débogage: set_box_aspect non supporté")
                 ax.dist = 10
 
-            fig.tight_layout(pad=1.0)  # Optimise layout pour fit rectangulaire sans étirement
+            fig.tight_layout(pad=1.0)
         else:
             print("Débogage: Pas de données valides pour le tracé 3D")
             messagebox.showwarning("Avertissement", "Aucune donnée valide pour l'affichage 3D.")
@@ -265,11 +251,9 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
         ax.set_zlabel('Z (mm)')
         ax.set_title('Visualisation 3D du G-code')
 
-        # Stocker la figure et l'axe pour réutilisation
         canvas_widget.figure = fig
         canvas_widget.ax = ax
 
-        # Nettoyer les widgets existants
         for widget in canvas_widget.winfo_children():
             widget.destroy()
 
@@ -281,9 +265,7 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
             toolbar.pack(side=tk.TOP, fill=tk.X)
             canvas.draw()
         except Exception as e:
-            print(f"Débogage: Erreur lors de l'initialisation de la barre d'outils : {str(e)}")
-            print(f"Débogage: Traceback : {traceback.format_exc()}")
-            # Continuer sans la barre d'outils si elle échoue
+            print(f"Débogage: Erreur barre d'outils : {str(e)}")
             canvas.draw()
 
         print("Débogage: Visualisation 3D affichée avec succès")
@@ -296,7 +278,7 @@ def plot_gcode_3d(gcode, canvas_widget, stock_x, stock_y, stock_z):
         return None
 
 def open_gcode_file():
-    """Ouvre un fichier G-code via un dialogue de fichier."""
+    global current_gcode_content
     print("Débogage: Ouverture d'un fichier G-code")
     file_path = filedialog.askopenfilename(
         initialdir=os.path.join(os.path.dirname(__file__), "NC"),
@@ -307,19 +289,18 @@ def open_gcode_file():
         try:
             with open(file_path, 'r') as f:
                 gcode = f.read()
+            current_gcode_content = gcode
             print(f"Débogage: Fichier G-code chargé : {file_path}")
             file_label.configure(text=f"Fichier chargé : {os.path.basename(file_path)}")
             stock_x, stock_y, stock_z = parse_stock_dimensions(gcode)
-            print(f"Débogage: Dimensions du stock : {stock_x}, {stock_y}, {stock_z}")
             plot_gcode_3d(gcode, canvas_frame, stock_x, stock_y, stock_z)
+            refresh_text_tab()  # Mise à jour de l'onglet texte
         except Exception as e:
             print(f"Débogage: Erreur dans open_gcode_file : {str(e)}")
-            print(f"Débogage: Traceback : {traceback.format_exc()}")
             messagebox.showerror("Erreur", f"Échec du chargement du G-code : {str(e)}")
             file_label.configure(text="Erreur lors du chargement")
 
 def save_image():
-    """Sauvegarde la visualisation 3D comme PNG."""
     print("Débogage: Sauvegarde de l'image")
     file_path = filedialog.asksaveasfilename(
         initialdir=os.path.join(os.path.dirname(__file__), "NC"),
@@ -330,15 +311,11 @@ def save_image():
     if file_path:
         try:
             canvas_frame.figure.savefig(file_path)
-            print(f"Débogage: Image sauvegardée dans {file_path}")
             messagebox.showinfo("Succès", f"Image sauvegardée dans\n{file_path}")
         except Exception as e:
-            print(f"Débogage: Erreur dans save_image : {str(e)}")
-            print(f"Débogage: Traceback : {traceback.format_exc()}")
             messagebox.showerror("Erreur", f"Échec de la sauvegarde de l'image : {str(e)}")
 
 def rotate_view(axis, angle):
-    """Tourne la vue 3D autour de l'axe spécifié (X ou Y) de l'angle donné."""
     print(f"Débogage: Rotation autour de l'axe {axis} de {angle} degrés")
     try:
         ax = canvas_frame.ax
@@ -348,28 +325,19 @@ def rotate_view(axis, angle):
         elif axis == 'Y':
             ax.view_init(elev=elev, azim=azim + angle)
         canvas_frame.figure.canvas.draw()
-        print("Débogage: Vue tournée")
     except Exception as e:
-        print(f"Débogage: Erreur dans rotate_view : {str(e)}")
-        print(f"Débogage: Traceback : {traceback.format_exc()}")
         messagebox.showerror("Erreur", f"Échec de la rotation : {str(e)}")
 
 def reset_view():
-    """Réinitialise la vue 3D."""
     print("Débogage: Réinitialisation de la vue")
     try:
         ax = canvas_frame.ax
         ax.view_init(elev=30, azim=45)
         canvas_frame.figure.canvas.draw()
-        print("Débogage: Vue réinitialisée")
     except Exception as e:
-        print(f"Débogage: Erreur dans reset_view : {str(e)}")
-        print(f"Débogage: Traceback : {traceback.format_exc()}")
         messagebox.showerror("Erreur", f"Échec de la réinitialisation de la vue : {str(e)}")
 
 def show_help():
-    """Affiche les instructions pour interagir avec le modèle 3D."""
-    print("Débogage: Affichage de l'aide")
     help_text = (
         "Instructions pour interagir avec la visualisation 3D :\n"
         "- Rotation : Clic gauche + glisser dans la zone de visualisation\n"
@@ -383,16 +351,18 @@ def show_help():
     messagebox.showinfo("Aide", help_text)
 
 def about():
-    """Affiche les informations sur l'application."""
-    print("Débogage: Affichage de la boîte À propos")
-    messagebox.showinfo("À propos", "Visualisation 3D du G-code\nVersion 1.9 (Réfs + Layout fixe)\nDéveloppé pour Gcode-Generator")
+    messagebox.showinfo("À propos", "Visualisation 3D du G-code\nVersion 2.0 (avec onglets)\nDéveloppé pour Gcode-Generator")
+
+def refresh_text_tab():
+    """Met à jour le contenu de l'onglet texte avec le G-code actuel."""
+    text_widget.delete('1.0', tk.END)
+    text_widget.insert('1.0', current_gcode_content)
 
 def update_visualization():
-    """Met à jour la visualisation 3D avec le dernier fichier G-code."""
+    global current_gcode_content
     print("Débogage: Début de update_visualization")
     gcode_file = get_latest_gcode_file()
     if not gcode_file:
-        print("Débogage: Aucun fichier G-code trouvé")
         messagebox.showerror("Erreur", "Aucun fichier G-code trouvé dans le dossier NC.")
         file_label.configure(text="Aucun fichier chargé")
         return
@@ -400,43 +370,33 @@ def update_visualization():
     try:
         with open(gcode_file, 'r') as f:
             gcode = f.read()
-        print(f"Débogage: Fichier G-code chargé : {gcode_file}")
+        current_gcode_content = gcode
         file_label.configure(text=f"Fichier chargé : {os.path.basename(gcode_file)}")
         stock_x, stock_y, stock_z = parse_stock_dimensions(gcode)
-        print(f"Débogage: Dimensions du stock : {stock_x}, {stock_y}, {stock_z}")
-        canvas = plot_gcode_3d(gcode, canvas_frame, stock_x, stock_y, stock_z)
-        if canvas is None:
-            print("Débogage: Échec du tracé 3D, canvas est None")
-            file_label.configure(text="Erreur lors du chargement")
+        plot_gcode_3d(gcode, canvas_frame, stock_x, stock_y, stock_z)
+        refresh_text_tab()  # Mise à jour de l'onglet texte
     except Exception as e:
-        print(f"Débogage: Erreur dans update_visualization : {str(e)}")
-        print(f"Débogage: Traceback : {traceback.format_exc()}")
         messagebox.showerror("Erreur", f"Échec du chargement du G-code : {str(e)}")
         file_label.configure(text="Erreur lors du chargement")
 
 def on_closing():
-    """Gère la fermeture de la fenêtre."""
-    print("Débogage: Tentative de fermeture de display_gcode_3d.py")
-    #if messagebox.askokcancel("Quitter", "Voulez-vous quitter la visualisation 3D ?"):
-    print("Débogage: Fermeture confirmée")
+    print("Débogage: Fermeture de l'application")
     try:
-            plt.close('all')  # Fermer toutes les figures Matplotlib
-            root.destroy()
-            print("Débogage: root.destroy() exécuté")
+        plt.close('all')
+        root.destroy()
     except Exception as e:
-            print(f"Débogage: Erreur lors de root.destroy() : {str(e)}")
-            print(f"Débogage: Traceback : {traceback.format_exc()}")
+        print(f"Débogage: Erreur lors de la fermeture : {str(e)}")
 
+# ==================== INTERFACE GRAPHIQUE ====================
 try:
     root = tk.Tk()
     root.title("Visualisation 3D du G-code")
-    root.geometry("700x700")  # Taille augmentée pour afficher menus et barre d'outils
+    root.geometry("1100x750+950+100")  # Un peu plus large pour les onglets
 
-    # Créer la barre de menus
+    # Barre de menus
     menubar = tk.Menu(root)
     root.config(menu=menubar)
 
-    # Menu Fichier
     file_menu = tk.Menu(menubar, tearoff=0)
     menubar.add_cascade(label="Fichier", menu=file_menu)
     file_menu.add_command(label="Ouvrir...", command=open_gcode_file)
@@ -445,12 +405,10 @@ try:
     file_menu.add_separator()
     file_menu.add_command(label="Quitter", command=on_closing)
 
-    # Menu Affichage
     view_menu = tk.Menu(menubar, tearoff=0)
     menubar.add_cascade(label="Affichage", menu=view_menu)
     view_menu.add_command(label="Réinitialiser la vue", command=reset_view)
 
-    # Menu Aide
     help_menu = tk.Menu(menubar, tearoff=0)
     menubar.add_cascade(label="Aide", menu=help_menu)
     help_menu.add_command(label="Instructions", command=show_help)
@@ -458,34 +416,66 @@ try:
 
     style = ttk.Style()
     style.configure("TFrame", borderwidth=2, relief="groove")
-    style.configure("TLabel", borderwidth=1, relief="flat")
-    style.configure("TButton", padding=5)
 
-    canvas_frame = ttk.Frame(root, style="TFrame")
-    canvas_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+    # Notebook (onglets)
+    notebook = ttk.Notebook(root)
+    notebook.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
-    # Frame pour les boutons de rotation
-    control_frame = ttk.Frame(root, style="TFrame")
+    # Onglet Vue 3D
+    tab_3d = ttk.Frame(notebook)
+    notebook.add(tab_3d, text="Vue 3D")
+
+    canvas_frame = ttk.Frame(tab_3d)
+    canvas_frame.pack(fill=tk.BOTH, expand=True)
+
+    # Onglet G-code texte
+    tab_text = ttk.Frame(notebook)
+    notebook.add(tab_text, text="G-code texte")
+
+    text_frame = ttk.Frame(tab_text)
+    text_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+    text_widget = tk.Text(text_frame, wrap="none", font=("Courier", 10))
+    v_scroll = ttk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
+    h_scroll = ttk.Scrollbar(text_frame, orient="horizontal", command=text_widget.xview)
+    text_widget.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
+
+    text_widget.grid(row=0, column=0, sticky="nsew")
+    v_scroll.grid(row=0, column=1, sticky="ns")
+    h_scroll.grid(row=1, column=0, sticky="ew")
+
+    text_frame.grid_rowconfigure(0, weight=1)
+    text_frame.grid_columnconfigure(0, weight=1)
+
+    # Contrôles (boutons de rotation, etc.)
+    control_frame = ttk.Frame(root)
     control_frame.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
 
-    # Boutons de rotation
     ttk.Button(control_frame, text="Tourner X+", command=lambda: rotate_view('X', 15)).grid(row=0, column=0, padx=5)
     ttk.Button(control_frame, text="Tourner X-", command=lambda: rotate_view('X', -15)).grid(row=0, column=1, padx=5)
     ttk.Button(control_frame, text="Tourner Y+", command=lambda: rotate_view('Y', 15)).grid(row=0, column=2, padx=5)
     ttk.Button(control_frame, text="Tourner Y-", command=lambda: rotate_view('Y', -15)).grid(row=0, column=3, padx=5)
 
-    file_label = ttk.Label(root, text="Aucun fichier chargé", style="TLabel")
+    file_label = ttk.Label(root, text="Aucun fichier chargé")
     file_label.grid(row=2, column=0, padx=5, pady=5)
 
     reload_button = ttk.Button(root, text="Recharger le dernier G-code", command=update_visualization)
     reload_button.grid(row=3, column=0, padx=5, pady=10)
 
+    # Configuration du grid principal
     root.grid_columnconfigure(0, weight=1)
     root.grid_rowconfigure(0, weight=1)
 
-    # Ajouter le gestionnaire de fermeture
+    # Rafraîchir l'onglet texte quand on y passe (au cas où le contenu aurait changé)
+    def on_tab_changed(event):
+        if notebook.index(notebook.select()) == 1:  # onglet texte
+            refresh_text_tab()
+
+    notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
+
     root.protocol("WM_DELETE_WINDOW", on_closing)
 
+    # Chargement initial
     update_visualization()
     root.mainloop()
 

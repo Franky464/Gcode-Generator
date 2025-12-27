@@ -2,7 +2,7 @@
 build==1.2.2.post1
 colorama==0.4.6
 # Editable install with no version control (gcode-generator==0.1.0)
-# -e h:\freecad\cnc_100_60\generateur gcode
+# -e C:\Users\farno\OneDrive\Documents\GitHub\Gcode-Generator
 hatchling==1.27.0
 importlib_metadata==8.5.0
 packaging==25.0

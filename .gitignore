@@ -5,3 +5,8 @@ venv/
 *.bak
 *.nc
 *.gcode
+dist/
+build/
+gps/
+stl/
+*.zip

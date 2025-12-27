@@ -1,0 +1,23 @@
+{
+    "mode": "3",
+    "name": "matrix_test",
+    "params": {
+        "start_x": 2.0,
+        "start_y": 0.0,
+        "start_z": 0.0,
+        "clearance_height": 5.0,
+        "spacing_x": 40.0,
+        "spacing_y": 30.0,
+        "num_rows": 2.0,
+        "num_cols": 2.0,
+        "total_depth": 12.0,
+        "depth_per_pass": 0.5,
+        "feed_rate": 1800.0,
+        "spindle_speed": 1000.0
+    },
+    "general": {
+        "project_name": "MTX_montage_rlt_45_percage_d35x11(2eme)",
+        "machine": "CNC_450x800"
+    },
+    "saved_at": "2025-10-23T20:07:19.541732"
+}

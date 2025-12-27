@@ -69,6 +69,14 @@ language_display_names = {
     "es": "Español"
 }
 
+# Options pour le combobox unités
+units_options = {
+    "fr": ["mm", "in"],
+    "en": ["mm", "in"],
+    "de": ["mm", "in"],
+    "es": ["mm", "in"]
+}
+
 mode_acronyms = {
     "1": "SRC",
     "2": "CDR",
@@ -123,6 +131,8 @@ def load_config():
     return {
         "project_name": "test",
         "machine": "CNC_450x800",
+        "global_feed_rate_drill": 1800,
+        "global_units": "mm",
         "last_operation": "1",
         "language": "fr",
         "threading": {}
@@ -187,10 +197,17 @@ def load_profile(mode_id, profile_name):
         data = json.load(f)
     
     # Met à jour les vars globales pour l'UI
-    global project_name_var, machine_var, entry_vars
+    global project_name_var, machine_var, entry_vars, global_feed_drill_var, global_units_var
     if data["general"]:
         project_name_var.set(data["general"].get("project_name", project_name_var.get()))
         machine_var.set(data["general"].get("machine", machine_var.get()))
+        # Vitesse de base (cachée ou dans un Entry séparé plus tard)
+        #global_feed_rate_base = config.get("global_feed_rate_base", 1800)
+
+        # Pourcentage sélectionné (affiché dans la combobox)
+        percent_value = config.get("global_feed_rate_percent", "25%")
+        global_feed_drill_var = tk.StringVar(value=percent_value)
+        global_units_var.set(data["general"].get("global_units", global_units_var.get()))
     
     # Met à jour les champs du mode
     for key, value in data["params"].items():
@@ -508,9 +525,6 @@ def update_fields(event=None):
 
     update_image()
 
-# ... (le reste du code reste inchangé, à partir de def clear_fields(): jusqu'à root.mainloop())
-# ... (le reste du code reste inchangé, à partir de def clear_fields(): jusqu'à root.mainloop())
-
 def clear_fields():
     for widget in frame.winfo_children():
         widget.destroy()
@@ -553,7 +567,12 @@ def update_ui_language():
     mode_label.configure(text=translations["translations"][lang]["select_mode"])
     project_label.configure(text=translations["translations"][lang]["project_name"])
     machine_label.configure(text=translations["translations"][lang]["machine"])
+    global_feed_drill_label.configure(text=translations["translations"][lang]["fields"].get("feed_rate_drill", "Vitesse de descente"))
+    global_units_label.configure(text=translations["translations"][lang]["fields"].get("units", "Unités (mm/in)"))
     generate_button.configure(text=translations["translations"][lang]["generate_button"])
+    
+    # Mise à jour des options du combobox unités
+    units_combo['values'] = units_options[lang]
     
     combo['values'] = [name for _, name in mode_options[lang]]
     current_mode_id = mode_var.get()
@@ -581,6 +600,11 @@ def save_and_generate():
     config["last_operation"] = mode
     config["project_name"] = project_name_var.get()
     config["machine"] = machine_var.get()
+    # Sauvegarde uniquement le pourcentage
+    config["global_feed_rate_percent"] = global_feed_drill_var.get()
+    # Garde la vitesse de base (ne change pas ici)
+    #config["global_feed_rate_base"] = config.get("global_feed_rate_base", 1800)
+    config["global_units"] = global_units_var.get()
     config["language"] = lang
 
     print(f"Débogage: Paramètres enregistrés : {entry_vars.keys()}")
@@ -684,7 +708,9 @@ def on_save_profile():
     
     general_params = {
         "project_name": project_name_var.get(),
-        "machine": machine_var.get()
+        "machine": machine_var.get(),
+        "global_feed_rate_drill": float(global_feed_drill_var.get() or 1800),
+        "global_units": global_units_var.get()
     }
     
     save_profile(mode_id, profile_name, params, general_params)
@@ -772,6 +798,8 @@ mode_options = {
 mode_var = tk.StringVar(value=config.get("last_operation", "1"))
 project_name_var = tk.StringVar(value=config.get("project_name", "test"))
 machine_var = tk.StringVar(value=config.get("machine", "CNC_450x800"))
+global_feed_drill_var = tk.StringVar(value=str(config.get("global_feed_rate_drill", 1800)))
+global_units_var = tk.StringVar(value=config.get("global_units", "mm"))
 
 # Frame pour les champs généraux
 general_frame = ttk.LabelFrame(
@@ -806,6 +834,24 @@ ttk.Entry(general_frame, textvariable=project_name_var, style="TEntry", width=30
 machine_label = ttk.Label(general_frame, text=translations["translations"][language_var.get()]["machine"], style="TLabel")
 machine_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
 ttk.Entry(general_frame, textvariable=machine_var, style="TEntry", width=30).grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+
+# Nouveaux champs généraux : Vitesse de descente et Unités (mm/inch)
+global_feed_drill_label = ttk.Label(general_frame, text=translations["translations"][language_var.get()]["fields"].get("feed_rate_drill", "Vitesse de descente"), style="TLabel")
+global_feed_drill_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
+
+# Combobox pour pourcentages
+feed_drill_combo = ttk.Combobox(general_frame, textvariable=global_feed_drill_var, state="readonly", width=30)
+feed_drill_combo['values'] = ('25%', '50%', '75%', '100%')
+feed_drill_combo.grid(row=4, column=1, padx=5, pady=5, sticky="ew")
+feed_drill_combo.set('50%')  # Valeur par défaut
+ToolTip(feed_drill_combo, translations["translations"][language_var.get()]["tooltips"].get("feed_rate_drill", "Pourcentage de la vitesse de descente (par rapport à la vitesse de base)"))
+
+global_units_label = ttk.Label(general_frame, text=translations["translations"][language_var.get()]["fields"].get("units", "Unités (mm/inch)"), style="TLabel")
+global_units_label.grid(row=5, column=0, padx=5, pady=5, sticky="e")
+units_combo = ttk.Combobox(general_frame, values=units_options[language_var.get()], textvariable=global_units_var, state="readonly", style="TCombobox", width=30)
+units_combo.grid(row=5, column=1, padx=5, pady=5, sticky="ew")
+units_combo.set(global_units_var.get())
+ToolTip(units_combo, translations["translations"][language_var.get()]["tooltips"].get("units", "Unités de mesure pour le projet (mm ou pouces)"))
 
 # Frame pour les champs contextuels
 frame = ttk.Frame(root, style="TFrame")

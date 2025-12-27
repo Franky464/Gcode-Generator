@@ -2,8 +2,8 @@
 
 # Définir le chemin du projet et de l'interpréteur Python
 $projectDir = "C:\Users\farno\OneDrive\Documents\GitHub\Gcode-Generator"
-$pythonPath = "C:\Users\farno\AppData\Local\Programs\Python\Python38\python.exe"
-
+#$pythonPath = "C:\Users\farno\AppData\Local\Programs\Python\Python38\python.exe"
+$pythonPath = "C:\Users\farno\AppData\Local\Python\bin\python.exe"
 Write-Host "Configuration de l'environnement pour Gcode-Generator..."
 
 # Étape 1 : Vérifier si l'interpréteur Python existe
